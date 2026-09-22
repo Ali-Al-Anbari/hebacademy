@@ -9,7 +9,7 @@ export default async function DashboardPage() {
 
   const { data: courses, error: coursesError } = await supabase
     .from("courses")
-    .select("id, name")
+    .select("id, name, decks(count)")
     .eq("user_id", data.claims.sub)
     .order("created_at", { ascending: false });
   if (coursesError) console.error("Failed to load courses:", coursesError);
@@ -24,7 +24,11 @@ export default async function DashboardPage() {
       {coursesError ? (
         <p role="alert" className="mt-9 rounded-xl border border-red-200 bg-white p-6 text-red-700">Could not load your courses. Please refresh and try again.</p>
       ) : (
-        <CourseManager courses={courses ?? []} />
+        <CourseManager courses={(courses ?? []).map((course) => ({
+          id: course.id,
+          name: course.name,
+          deckCount: course.decks[0]?.count ?? 0,
+        }))} />
       )}
     </main>
   );

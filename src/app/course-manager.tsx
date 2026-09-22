@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { createCourse, deleteCourse, renameCourse } from "./course-actions";
 
-type Course = { id: string; name: string };
+type Course = { id: string; name: string; deckCount: number };
 
 export function CourseManager({ courses }: { courses: Course[] }) {
   const router = useRouter();
@@ -103,7 +103,7 @@ export function CourseManager({ courses }: { courses: Course[] }) {
                   <h2 className="break-words text-xl font-semibold text-slate-900 group-hover:text-teal-800">{course.name}</h2>
                 </div>
                 <div className="mt-5 flex items-center justify-between text-sm text-slate-500">
-                  <span>0 decks</span>
+                  <span>{course.deckCount} {course.deckCount === 1 ? "deck" : "decks"}</span>
                   <span aria-hidden="true" className="text-lg text-teal-700">→</span>
                 </div>
               </Link>
