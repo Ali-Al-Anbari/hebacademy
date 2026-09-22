@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { CardManager } from "./card-manager";
+import { startStudy } from "./study/actions";
+import { StartStudyButton } from "./study/start-button";
 
 const validId = (id: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -64,6 +66,9 @@ export default async function DeckPage({
             <p className="text-sm font-medium text-teal-700">{course?.name}</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">{deck?.name}</h1>
             {deck?.description && <p className="mt-3 whitespace-pre-wrap text-slate-600">{deck.description}</p>}
+            <form action={startStudy.bind(null, courseId, deckId)} className="mt-6">
+              <StartStudyButton />
+            </form>
           </div>
           <CardManager courseId={courseId} deckId={deckId} userId={userId} cards={cards} />
         </>
