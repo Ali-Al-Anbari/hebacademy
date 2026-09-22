@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { CardManager } from "./card-manager";
+import { DeckProgress, getDeckProgress } from "./progress";
 import { startStudy } from "./study/actions";
 import { StartStudyButton } from "./study/start-button";
 
@@ -35,11 +36,20 @@ export default async function DeckPage({
   const deck = deckResult?.data;
   const cardResult = deck
     ? await supabase.from("cards")
-        .select("id, prompt, answer, prompt_image_path, answer_image_path, is_starred, position")
+        .select("id, prompt, answer, prompt_image_path, answer_image_path, is_starred, position", { count: "exact" })
         .eq("deck_id", deckId).eq("user_id", userId)
         .order("position", { ascending: true }).order("id", { ascending: true })
     : null;
   if (cardResult?.error) console.error("Failed to load cards:", cardResult.error);
+
+  let progress = null;
+  if (cardResult && !cardResult.error) {
+    try {
+      progress = await getDeckProgress(supabase, deckId, userId, cardResult.count ?? 0);
+    } catch (error) {
+      console.error("Failed to load deck progress:", error);
+    }
+  }
 
   const cards = await Promise.all((cardResult?.data ?? []).map(async (card) => {
     async function imageUrl(path: string | null) {
@@ -70,6 +80,9 @@ export default async function DeckPage({
               <StartStudyButton />
             </form>
           </div>
+          {progress ? <DeckProgress summary={progress} /> : (
+            <p role="alert" className="mt-8 rounded-xl border border-red-200 bg-white p-6 text-red-700">Could not load study progress. Please refresh and try again.</p>
+          )}
           <CardManager courseId={courseId} deckId={deckId} userId={userId} cards={cards} />
         </>
       )}
