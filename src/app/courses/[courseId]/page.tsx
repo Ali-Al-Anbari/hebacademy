@@ -1,8 +1,13 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import { courses } from "../../sample-courses";
 
 export default async function CoursePage({ params }: PageProps<"/courses/[courseId]">) {
+  const supabase = await createClient();
+  const { data, error } = await supabase.auth.getClaims();
+  if (error || !data?.claims) redirect("/login");
+
   const { courseId } = await params;
   const course = courses.find((item) => item.id === courseId);
 
