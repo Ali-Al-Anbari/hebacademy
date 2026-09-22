@@ -73,7 +73,7 @@ export function QuizView({ questions, deckUrl }: { questions: QuizQuestion[]; de
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
         <div className="h-full rounded-full bg-teal-700" style={{ width: `${Math.round((index / questions.length) * 100)}%` }} />
       </div>
-      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
         <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Prompt</p>
         <h2 className="mt-3 whitespace-pre-wrap break-words text-xl font-semibold text-slate-900 sm:text-2xl">{question.prompt}</h2>
         {question.promptImageUrl && <Image unoptimized src={question.promptImageUrl} alt="Prompt illustration" width={640} height={400} className="mt-5 max-h-72 w-auto max-w-full rounded-lg object-contain" />}
@@ -88,7 +88,7 @@ export function QuizView({ questions, deckUrl }: { questions: QuizQuestion[]; de
                 ? "border-rose-400 bg-rose-50 text-rose-900"
                 : "border-slate-300 bg-white text-slate-900 hover:bg-slate-50";
             return (
-              <button key={option.key} type="button" disabled={answered} onClick={() => setSelectedKey(option.key)} className={`w-full rounded-lg border px-4 py-3 text-left font-medium whitespace-pre-wrap break-words focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:cursor-default ${color}`}>
+              <button key={option.key} type="button" disabled={answered} onClick={() => setSelectedKey(option.key)} className={`min-h-12 w-full rounded-lg border px-4 py-3 text-left font-medium leading-relaxed whitespace-pre-wrap break-words focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:cursor-default ${color}`}>
                 {option.label}
               </button>
             );
@@ -100,7 +100,7 @@ export function QuizView({ questions, deckUrl }: { questions: QuizQuestion[]; de
             {!isCorrect && <p className="mt-1 whitespace-pre-wrap break-words">Correct answer: {question.correctAnswer}</p>}
           </div>
         )}
-        {answered && <button type="button" onClick={nextQuestion} className="mt-6 rounded-lg bg-teal-700 px-5 py-2.5 font-medium text-white hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700">{index === questions.length - 1 ? "See Results" : "Next Question"}</button>}
+        {answered && <button type="button" onClick={nextQuestion} className="mt-6 min-h-12 w-full rounded-lg bg-teal-700 px-5 py-2.5 font-semibold text-white hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 sm:w-auto">{index === questions.length - 1 ? "See Results" : "Next Question"}</button>}
       </div>
     </section>
   );

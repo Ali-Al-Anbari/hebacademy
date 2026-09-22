@@ -73,18 +73,19 @@ export function CourseManager({ courses }: { courses: Course[] }) {
   return (
     <>
       <div className="mt-9 flex justify-end">
-        <button type="button" onClick={() => { setAdding(!adding); setMessage(""); }} disabled={busy} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-teal-700 px-5 font-medium text-white hover:bg-teal-800 disabled:opacity-60">
-          <span aria-hidden="true" className="text-xl leading-none">+</span>
-          Add Course
+        <button type="button" onClick={() => { setAdding(!adding); setMessage(""); }} disabled={busy} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-5 font-medium disabled:cursor-wait disabled:opacity-60 ${adding ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "bg-teal-700 text-white hover:bg-teal-800"}`}>
+          <span aria-hidden="true" className="text-xl leading-none">{adding ? "×" : "+"}</span>
+          {adding ? "Close form" : "Add Course"}
         </button>
       </div>
 
       {adding && (
         <form onSubmit={add} className="mt-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <label htmlFor="new-course-name" className="block text-sm font-medium text-slate-700">Course name</label>
+          <h2 className="text-lg font-semibold text-slate-900">New Course</h2>
+          <label htmlFor="new-course-name" className="mt-4 block text-sm font-medium text-slate-700">Course name</label>
           <div className="mt-2 flex flex-col gap-3 sm:flex-row">
             <input id="new-course-name" value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={120} required autoFocus className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2.5 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/20" />
-            <button type="submit" disabled={busy} className="rounded-lg bg-teal-700 px-5 py-2.5 font-medium text-white hover:bg-teal-800 disabled:opacity-60">Save course</button>
+            <button type="submit" disabled={busy} className="min-h-11 rounded-lg bg-teal-700 px-5 py-2.5 font-medium text-white hover:bg-teal-800 disabled:cursor-wait disabled:opacity-60">{busy ? "Saving…" : "Save course"}</button>
           </div>
         </form>
       )}
@@ -108,8 +109,8 @@ export function CourseManager({ courses }: { courses: Course[] }) {
                 </div>
               </Link>
               <div className="flex gap-2 border-t border-slate-100 px-6 py-3">
-                <button type="button" disabled={busy} onClick={() => { setEditingId(course.id); setEditedName(course.name); setMessage(""); }} className="rounded-lg px-2 py-1 text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-60">Rename</button>
-                <button type="button" disabled={busy} onClick={() => remove(course)} className="rounded-lg px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60">Delete</button>
+                <button type="button" disabled={busy} onClick={() => { setEditingId(course.id); setEditedName(course.name); setMessage(""); }} className="min-h-11 rounded-lg px-3 py-2 text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-60">Rename</button>
+                <button type="button" disabled={busy} onClick={() => remove(course)} className="min-h-11 rounded-lg px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60">Delete</button>
               </div>
               {editingId === course.id && (
                 <form onSubmit={rename} className="border-t border-slate-100 px-6 py-4">

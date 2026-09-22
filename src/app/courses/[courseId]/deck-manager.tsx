@@ -86,19 +86,20 @@ export function DeckManager({ courseId, decks }: { courseId: string; decks: Deck
           <h2 className="text-2xl font-semibold text-slate-900">Decks</h2>
           <p className="mt-1 text-sm text-slate-500">{decks.length} {decks.length === 1 ? "deck" : "decks"} in this course</p>
         </div>
-        <button type="button" disabled={busy} onClick={() => { setEditingId(null); setAdding(!adding); setName(""); setDescription(""); setMessage(""); }} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-teal-700 px-5 font-medium text-white hover:bg-teal-800 disabled:opacity-60">
-          <span aria-hidden="true" className="text-xl leading-none">+</span>
-          Add Deck
+        <button type="button" disabled={busy} onClick={() => { setEditingId(null); setAdding(!adding); setName(""); setDescription(""); setMessage(""); }} className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-5 font-medium disabled:cursor-wait disabled:opacity-60 sm:w-auto ${adding ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "bg-teal-700 text-white hover:bg-teal-800"}`}>
+          <span aria-hidden="true" className="text-xl leading-none">{adding ? "×" : "+"}</span>
+          {adding ? "Close form" : "Add Deck"}
         </button>
       </div>
 
       {adding && (
         <form onSubmit={add} className="mt-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-900">New Deck</h3>
           <label htmlFor="new-deck-name" className="block text-sm font-medium text-slate-700">Deck name</label>
           <input id="new-deck-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required autoFocus className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/20" />
           <label htmlFor="new-deck-description" className="mt-4 block text-sm font-medium text-slate-700">Description (optional)</label>
           <textarea id="new-deck-description" value={description} onChange={(event) => setDescription(event.target.value)} maxLength={1000} rows={3} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/20" />
-          <button type="submit" disabled={busy} className="mt-4 rounded-lg bg-teal-700 px-5 py-2.5 font-medium text-white hover:bg-teal-800 disabled:opacity-60">Save deck</button>
+          <button type="submit" disabled={busy} className="mt-4 min-h-11 w-full rounded-lg bg-teal-700 px-5 py-2.5 font-medium text-white hover:bg-teal-800 disabled:cursor-wait disabled:opacity-60 sm:w-auto">{busy ? "Saving…" : "Save deck"}</button>
         </form>
       )}
 
@@ -116,8 +117,8 @@ export function DeckManager({ courseId, decks }: { courseId: string; decks: Deck
                 <p className="mt-1 line-clamp-3 break-words text-sm text-slate-500">{deck.description || "No description"}</p>
               </Link>
               <div className="flex gap-2 border-t border-slate-100 px-6 py-3">
-                <button type="button" disabled={busy} onClick={() => startEditing(deck)} className="rounded-lg px-2 py-1 text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-60">Edit</button>
-                <button type="button" disabled={busy} onClick={() => remove(deck)} className="rounded-lg px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60">Delete</button>
+                <button type="button" disabled={busy} onClick={() => startEditing(deck)} className="min-h-11 rounded-lg px-3 py-2 text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-60">Edit</button>
+                <button type="button" disabled={busy} onClick={() => remove(deck)} className="min-h-11 rounded-lg px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-60">Delete</button>
               </div>
               {editingId === deck.id && (
                 <form onSubmit={save} className="border-t border-slate-100 px-6 py-4">

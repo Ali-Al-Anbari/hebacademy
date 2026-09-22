@@ -122,17 +122,17 @@ export function StudyView({ courseId, deckId, sessionId, cards, reviews, complet
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
         <div className="h-full rounded-full bg-teal-700" style={{ width: `${Math.round((reviewed.size / cards.length) * 100)}%` }} />
       </div>
-      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
         <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Prompt</p>
         <h2 className="mt-3 whitespace-pre-wrap break-words text-xl font-semibold text-slate-900 sm:text-2xl">{card.prompt}</h2>
         {card.promptImageUrl && <Image unoptimized src={card.promptImageUrl} alt="Prompt illustration" width={640} height={400} className="mt-5 max-h-72 w-auto max-w-full rounded-lg object-contain" />}
 
         <label htmlFor="typed-response" className="mt-8 block text-sm font-medium text-slate-700">Your answer (optional)</label>
-        <textarea id="typed-response" value={typed} onChange={(event) => setTyped(event.target.value)} readOnly={revealed} rows={4} placeholder="Think it through before revealing…" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/20 read-only:bg-slate-50" />
+        <textarea id="typed-response" value={typed} onChange={(event) => setTyped(event.target.value)} readOnly={revealed} rows={4} placeholder="Think it through before revealing…" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-3 leading-relaxed focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/20 read-only:bg-slate-50" />
         <p className="mt-1 text-xs text-slate-500">This response stays on this screen and is not graded or saved.</p>
 
         {!revealed ? (
-          <button type="button" onClick={() => setRevealed(true)} className="mt-6 rounded-lg bg-teal-700 px-5 py-2.5 font-medium text-white hover:bg-teal-800">Reveal Answer</button>
+          <button type="button" onClick={() => setRevealed(true)} className="mt-6 min-h-12 w-full rounded-lg bg-teal-700 px-5 py-2.5 font-semibold text-white hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 sm:w-auto">Reveal Answer</button>
         ) : (
           <>
             <div className="mt-7 border-t border-slate-200 pt-6">
@@ -142,9 +142,9 @@ export function StudyView({ courseId, deckId, sessionId, cards, reviews, complet
             </div>
             <p className="mt-7 text-sm font-medium text-slate-700">How well did you know it?</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <button type="button" disabled={busy} onClick={() => rate("review_again")} className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 font-medium text-rose-900 hover:bg-rose-100 disabled:opacity-60">Review Again</button>
-              <button type="button" disabled={busy} onClick={() => rate("needs_practice")} className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60">Needs Practice</button>
-              <button type="button" disabled={busy} onClick={() => rate("mastered")} className="rounded-lg border border-teal-300 bg-teal-50 px-4 py-3 font-medium text-teal-900 hover:bg-teal-100 disabled:opacity-60">Mastered</button>
+              <button type="button" disabled={busy} onClick={() => rate("review_again")} className="min-h-12 rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 font-semibold text-rose-900 hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60">{busy ? "Saving…" : "Review Again"}</button>
+              <button type="button" disabled={busy} onClick={() => rate("needs_practice")} className="min-h-12 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-wait disabled:opacity-60">{busy ? "Saving…" : "Needs Practice"}</button>
+              <button type="button" disabled={busy} onClick={() => rate("mastered")} className="min-h-12 rounded-lg border border-teal-300 bg-teal-50 px-4 py-3 font-semibold text-teal-900 hover:bg-teal-100 disabled:cursor-wait disabled:opacity-60">{busy ? "Saving…" : "Mastered"}</button>
             </div>
           </>
         )}

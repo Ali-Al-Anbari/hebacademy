@@ -67,7 +67,9 @@ export default async function DeckPage({
 
   return (
     <main className="mx-auto w-full max-w-6xl px-5 py-10 sm:px-8 sm:py-14">
-      <Link href={`/courses/${courseId}`} className="inline-flex items-center gap-2 text-sm font-medium text-teal-700 hover:text-teal-900 focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700">← Back to Course</Link>
+      <nav aria-label="Breadcrumb">
+        <Link href={`/courses/${courseId}`} className="inline-flex min-h-11 items-center gap-2 rounded-lg pr-3 text-sm font-medium text-teal-700 hover:text-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700">← Back to Course</Link>
+      </nav>
       {courseError || deckResult?.error || cardResult?.error ? (
         <p role="alert" className="mt-9 rounded-xl border border-red-200 bg-white p-6 text-red-700">Could not load this deck. Please refresh and try again.</p>
       ) : (
@@ -76,10 +78,12 @@ export default async function DeckPage({
             <p className="text-sm font-medium text-teal-700">{course?.name}</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">{deck?.name}</h1>
             {deck?.description && <p className="mt-3 whitespace-pre-wrap text-slate-600">{deck.description}</p>}
-            <form action={startStudy.bind(null, courseId, deckId)} className="mt-6">
-              <StartStudyButton />
-            </form>
-            <Link href={`/courses/${courseId}/decks/${deckId}/quiz`} className="mt-3 inline-flex items-center justify-center rounded-lg border border-teal-700 px-5 py-2.5 font-medium text-teal-700 hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700">Start Quiz</Link>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <form action={startStudy.bind(null, courseId, deckId)} className="sm:w-auto">
+                <StartStudyButton />
+              </form>
+              <Link href={`/courses/${courseId}/decks/${deckId}/quiz`} className="inline-flex min-h-12 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-5 py-2.5 font-semibold text-slate-700 hover:border-teal-700 hover:bg-teal-50 hover:text-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 sm:w-auto">Start Quiz</Link>
+            </div>
           </div>
           {progress ? <DeckProgress summary={progress} /> : (
             <p role="alert" className="mt-8 rounded-xl border border-red-200 bg-white p-6 text-red-700">Could not load study progress. Please refresh and try again.</p>

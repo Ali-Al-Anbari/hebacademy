@@ -103,7 +103,9 @@ export default async function QuizPage({
 
   return (
     <main className="mx-auto w-full max-w-3xl px-5 py-10 sm:px-8 sm:py-14">
-      <Link href={deckUrl} className="inline-flex items-center gap-2 text-sm font-medium text-teal-700 hover:text-teal-900 focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700">← Back to Deck</Link>
+      <nav aria-label="Breadcrumb">
+        <Link href={deckUrl} className="inline-flex min-h-11 items-center gap-2 rounded-lg pr-3 text-sm font-medium text-teal-700 hover:text-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700">← Back to Deck</Link>
+      </nav>
       <div className="mt-9 border-b border-slate-200 pb-8">
         <p className="text-sm font-medium text-teal-700">{course?.name}</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Quiz: {deckResult?.data?.name}</h1>

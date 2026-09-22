@@ -147,8 +147,8 @@ export function CardManager({ courseId, deckId, userId, cards }: {
           <h2 className="text-2xl font-semibold text-slate-900">Cards</h2>
           <p className="mt-1 text-sm text-slate-500">{cards.length} {cards.length === 1 ? "card" : "cards"} in this deck</p>
         </div>
-        <button type="button" onClick={() => { setAdding(!adding); setEditingId(null); setMessage(""); }} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-teal-700 px-5 font-medium text-white hover:bg-teal-800">
-          <span aria-hidden="true" className="text-xl leading-none">+</span>Add Card
+        <button type="button" onClick={() => { setAdding(!adding); setEditingId(null); setMessage(""); }} className={`inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-5 font-medium sm:w-auto ${adding ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "bg-teal-700 text-white hover:bg-teal-800"}`}>
+          <span aria-hidden="true" className="text-xl leading-none">{adding ? "×" : "+"}</span>{adding ? "Close form" : "Add Card"}
         </button>
       </div>
 
@@ -170,13 +170,13 @@ export function CardManager({ courseId, deckId, userId, cards }: {
                   <p className="mt-1 whitespace-pre-wrap break-words text-slate-700">{card.answer}</p>
                   {card.answer_image_url && <Image unoptimized src={card.answer_image_url} alt="Answer illustration" width={640} height={400} className="mt-3 max-h-56 w-auto max-w-full rounded-lg object-contain" />}
                 </div>
-                <button type="button" disabled={Boolean(busyId)} onClick={() => changeStar(card)} aria-label={card.is_starred ? "Unstar card" : "Star card"} aria-pressed={card.is_starred} className="rounded-lg px-2 py-1 text-2xl text-amber-500 hover:bg-amber-50 disabled:opacity-50">{card.is_starred ? "★" : "☆"}</button>
+                <button type="button" disabled={Boolean(busyId)} onClick={() => changeStar(card)} aria-label={card.is_starred ? "Unstar card" : "Star card"} aria-pressed={card.is_starred} className="min-h-11 min-w-11 shrink-0 rounded-lg px-2 py-1 text-2xl text-amber-500 hover:bg-amber-50 disabled:opacity-50">{card.is_starred ? "★" : "☆"}</button>
               </div>
               <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-                <button type="button" disabled={Boolean(busyId) || index === 0} onClick={() => move(card, "up")} className="rounded-lg px-2 py-1 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-40">Move up</button>
-                <button type="button" disabled={Boolean(busyId) || index === cards.length - 1} onClick={() => move(card, "down")} className="rounded-lg px-2 py-1 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-40">Move down</button>
-                <button type="button" disabled={Boolean(busyId)} onClick={() => { setAdding(false); setEditingId(card.id); setMessage(""); }} className="rounded-lg px-2 py-1 text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-40">Edit</button>
-                <button type="button" disabled={Boolean(busyId)} onClick={() => remove(card)} className="rounded-lg px-2 py-1 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-40">Delete</button>
+                <button type="button" disabled={Boolean(busyId) || index === 0} onClick={() => move(card, "up")} className="min-h-11 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-40">Move up</button>
+                <button type="button" disabled={Boolean(busyId) || index === cards.length - 1} onClick={() => move(card, "down")} className="min-h-11 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-40">Move down</button>
+                <button type="button" disabled={Boolean(busyId)} onClick={() => { setAdding(false); setEditingId(card.id); setMessage(""); }} className="min-h-11 rounded-lg px-3 py-2 text-sm font-medium text-teal-700 hover:bg-teal-50 disabled:opacity-40">Edit</button>
+                <button type="button" disabled={Boolean(busyId)} onClick={() => remove(card)} className="min-h-11 rounded-lg px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-40">Delete</button>
               </div>
               {editingId === card.id && (
                 <div className="mt-4">
