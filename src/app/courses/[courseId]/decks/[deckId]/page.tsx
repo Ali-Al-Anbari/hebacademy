@@ -79,6 +79,7 @@ export default async function DeckPage({
             <form action={startStudy.bind(null, courseId, deckId)} className="mt-6">
               <StartStudyButton />
             </form>
+            <Link href={`/courses/${courseId}/decks/${deckId}/quiz`} className="mt-3 inline-flex items-center justify-center rounded-lg border border-teal-700 px-5 py-2.5 font-medium text-teal-700 hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700">Start Quiz</Link>
           </div>
           {progress ? <DeckProgress summary={progress} /> : (
             <p role="alert" className="mt-8 rounded-xl border border-red-200 bg-white p-6 text-red-700">Could not load study progress. Please refresh and try again.</p>
