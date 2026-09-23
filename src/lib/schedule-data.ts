@@ -55,3 +55,26 @@ export async function getCompletedScheduleDateIds(
   }
   return completed;
 }
+
+export async function getUnfinishedScheduleDateIds(
+  supabase: SupabaseClient, userId: string, dateIds: string[],
+) {
+  const unfinished = new Set<string>();
+  for (let offset = 0; offset < dateIds.length; offset += 100) {
+    for (let page = 0; ;) {
+      const { data, count, error } = await supabase.from("study_sessions")
+        .select("study_schedule_date_id", { count: "exact" })
+        .eq("user_id", userId).is("completed_at", null)
+        .in("study_schedule_date_id", dateIds.slice(offset, offset + 100))
+        .order("id").range(page, page + 999);
+      if (error || count === null) throw error ?? new Error("Missing unfinished session count");
+      for (const row of data ?? []) {
+        if (row.study_schedule_date_id) unfinished.add(row.study_schedule_date_id);
+      }
+      if (page + (data?.length ?? 0) >= count) break;
+      if (!data?.length) throw new Error("Unfinished session query stopped early");
+      page += data.length;
+    }
+  }
+  return unfinished;
+}

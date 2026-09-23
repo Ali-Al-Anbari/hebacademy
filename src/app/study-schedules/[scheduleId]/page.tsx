@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
-import { getCompletedScheduleDateIds, getScheduleCardIds, getScheduleDates } from "@/lib/schedule-data";
+import { getCompletedScheduleDateIds, getScheduleCardIds, getScheduleDates, getUnfinishedScheduleDateIds } from "@/lib/schedule-data";
 import { getOwnedStudyCards } from "@/lib/study-data";
 import { createClient } from "@/lib/supabase/server";
 import { ScheduleManager } from "./schedule-manager";
@@ -40,6 +40,7 @@ export default async function SchedulePage({ params }: PageProps<"/study-schedul
   let selectedIds: string[] = [];
   let dates: Awaited<ReturnType<typeof getScheduleDates>> = [];
   let completedIds = new Set<string>();
+  let unfinishedIds = new Set<string>();
   let dataError = false;
   if (schedule && deckResult?.data && courseResult?.data) {
     try {
@@ -48,7 +49,10 @@ export default async function SchedulePage({ params }: PageProps<"/study-schedul
         getScheduleCardIds(supabase, scheduleId),
         getScheduleDates(supabase, scheduleId),
       ]);
-      completedIds = await getCompletedScheduleDateIds(supabase, userId, dates.map((date) => date.id));
+      [completedIds, unfinishedIds] = await Promise.all([
+        getCompletedScheduleDateIds(supabase, userId, dates.map((date) => date.id)),
+        getUnfinishedScheduleDateIds(supabase, userId, dates.map((date) => date.id)),
+      ]);
     } catch (error) {
       console.error("Failed to load schedule cards or dates:", error);
       dataError = true;
@@ -71,7 +75,7 @@ export default async function SchedulePage({ params }: PageProps<"/study-schedul
           deckName={deckResult?.data?.name ?? "Deck"}
           cards={cards.map(({ id, prompt, is_starred }) => ({ id, prompt, is_starred }))}
           selectedCardIds={selectedIds}
-          dates={dates.map((date) => ({ ...date, completed: completedIds.has(date.id) }))}
+          dates={dates.map((date) => ({ ...date, completed: completedIds.has(date.id), resumable: unfinishedIds.has(date.id) }))}
         />
       )}
     </main>

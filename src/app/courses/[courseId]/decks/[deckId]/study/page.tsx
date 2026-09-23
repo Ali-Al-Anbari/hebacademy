@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { buttonVariants } from "@/components/ui/button";
 import { getOwnedStudyCards, getSessionRatings } from "@/lib/study-data";
 import { resolveSessionCards } from "@/lib/study-filter";
 import { startStudy } from "./actions";
@@ -40,12 +42,33 @@ export default async function StudyPage({
 
   const sessionResult = sessionId && deckResult?.data
     ? await supabase.from("study_sessions")
-        .select("id, completed_at, selected_card_ids")
+        .select("id, completed_at, selected_card_ids, study_schedule_date_id")
         .eq("id", sessionId).eq("deck_id", deckId).eq("user_id", userId)
         .eq("mode", "flashcards").maybeSingle()
     : null;
   if (sessionResult?.error) console.error("Failed to load study session:", sessionResult.error);
   if (sessionResult && !sessionResult.error && !sessionResult.data) notFound();
+
+  let returnScheduleId: string | null = null;
+  if (sessionResult?.data) {
+    const dateId = sessionResult.data.study_schedule_date_id;
+    let scheduleId: string | null = null;
+    if (dateId) {
+      const { data: date, error } = await supabase.from("study_schedule_dates")
+        .select("study_schedule_id").eq("id", dateId).maybeSingle();
+      if (error) console.error("Failed to load scheduled study destination:", error);
+      scheduleId = date?.study_schedule_id ?? null;
+    } else if (typeof query.schedule === "string" && validId(query.schedule)) {
+      scheduleId = query.schedule;
+    }
+    if (scheduleId) {
+      const { data: schedule, error } = await supabase.from("study_schedules")
+        .select("id").eq("id", scheduleId).eq("deck_id", deckId)
+        .eq("user_id", userId).maybeSingle();
+      if (error) console.error("Failed to verify scheduled study destination:", error);
+      returnScheduleId = schedule?.id ?? null;
+    }
+  }
 
   let allCards: Awaited<ReturnType<typeof getOwnedStudyCards>> = [];
   let sessionRatings = new Map<string, string>();
@@ -97,7 +120,9 @@ export default async function StudyPage({
       </div>
 
       {hasError ? (
-        <p role="alert" className="notice-error mt-8">Could not load this study session. Please refresh and try again.</p>
+        <div className="mt-8"><p role="alert" className="notice-error">{invalidSelection && sessionId
+          ? "A card in this session is no longer available. This session cannot be completed; start a new session with the remaining cards."
+          : "Could not load this study session. Please refresh and try again."}</p>{invalidSelection && sessionId && <Link href={returnScheduleId ? `/study-schedules/${returnScheduleId}` : `/courses/${courseId}/decks/${deckId}`} className={buttonVariants({ variant: "secondary", className: "mt-4" })}>Back to {returnScheduleId ? "Schedule" : "Deck"}</Link>}</div>
       ) : sessionId && sessionResult?.data ? (
         <StudyView
           courseId={courseId}
@@ -106,6 +131,7 @@ export default async function StudyPage({
           cards={cards}
           reviews={reviews}
           completed={Boolean(sessionResult.data.completed_at)}
+          returnScheduleId={returnScheduleId}
         />
       ) : query.error === "empty" ? (
         <div className="empty-panel mt-8"><h2 className="empty-panel__title">No cards in that group yet.</h2><p className="empty-panel__copy">Choose another study group from the deck.</p></div>

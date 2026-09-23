@@ -391,3 +391,83 @@ export async function deleteSchedule(scheduleId: string) {
   refreshSchedule(scheduleId);
   return { error: null };
 }
+
+export async function startScheduleStudy(scheduleId: string, dateId: string | null) {
+  const failure = (error: string) => ({ error, url: null as string | null });
+  if (dateId !== null && (typeof dateId !== "string" || !validId(dateId))) {
+    return failure("This review date is unavailable.");
+  }
+  const context = await ownedSchedule(scheduleId);
+  if (!context) return failure("This schedule is unavailable.");
+
+  const { data: deck, error: deckError } = await context.supabase.from("decks")
+    .select("course_id").eq("id", context.deckId).eq("user_id", context.userId).maybeSingle();
+  if (deckError || !deck) {
+    if (deckError) console.error("Failed to verify schedule study deck:", deckError);
+    return failure("This deck is unavailable.");
+  }
+  const { data: course, error: courseError } = await context.supabase.from("courses")
+    .select("id").eq("id", deck.course_id).eq("user_id", context.userId).maybeSingle();
+  if (courseError || !course) {
+    if (courseError) console.error("Failed to verify schedule study course:", courseError);
+    return failure("This course is unavailable.");
+  }
+  const studyPath = `/courses/${course.id}/decks/${context.deckId}/study`;
+  const sessionUrl = (id: string) => `${studyPath}?session=${id}&schedule=${scheduleId}`;
+
+  if (dateId) {
+    const { data: date, error: dateError } = await context.supabase.from("study_schedule_dates")
+      .select("id").eq("id", dateId).eq("study_schedule_id", scheduleId).maybeSingle();
+    if (dateError || !date) {
+      if (dateError) console.error("Failed to verify scheduled review date:", dateError);
+      return failure("This review date is unavailable.");
+    }
+    try {
+      const completed = await getCompletedScheduleDateIds(context.supabase, context.userId, [dateId]);
+      if (completed.has(dateId)) return failure("This review is already completed.");
+    } catch (error) {
+      console.error("Failed to check scheduled review completion:", error);
+      return failure("Could not check this review date. Please try again.");
+    }
+
+    const { data: unfinished, error: resumeError } = await context.supabase.from("study_sessions")
+      .select("id, selected_card_ids")
+      .eq("user_id", context.userId).eq("deck_id", context.deckId)
+      .eq("mode", "flashcards").eq("study_schedule_date_id", dateId)
+      .is("completed_at", null)
+      .order("started_at", { ascending: false }).order("id", { ascending: false })
+      .limit(1).maybeSingle();
+    if (resumeError) {
+      console.error("Failed to find unfinished scheduled session:", resumeError);
+      return failure("Could not check for an unfinished review. Please try again.");
+    }
+    if (unfinished?.selected_card_ids?.length) return { error: null, url: sessionUrl(unfinished.id) };
+  }
+
+  let selectedIds: string[];
+  try {
+    const [cards, savedIds] = await Promise.all([
+      getOwnedStudyCards(context.supabase, context.deckId, context.userId),
+      getScheduleCardIds(context.supabase, scheduleId),
+    ]);
+    const saved = new Set(savedIds);
+    selectedIds = cards.filter((card) => saved.has(card.id)).map((card) => card.id);
+    if (selectedIds.length !== saved.size) {
+      console.warn("Some saved schedule cards are no longer available:", scheduleId);
+    }
+  } catch (error) {
+    console.error("Failed to load scheduled study cards:", error);
+    return failure("Could not load this schedule's cards. Please try again.");
+  }
+  if (!selectedIds.length) return failure("This schedule has no cards. Edit it to add cards first.");
+
+  const { data: session, error: insertError } = await context.supabase.from("study_sessions")
+    .insert({ user_id: context.userId, deck_id: context.deckId, mode: "flashcards",
+      selected_card_ids: selectedIds, study_schedule_date_id: dateId })
+    .select("id").single();
+  if (insertError || !session) {
+    if (insertError) console.error("Failed to start scheduled study session:", insertError);
+    return failure("Could not start this study session. Please refresh and try again.");
+  }
+  return { error: null, url: sessionUrl(session.id) };
+}

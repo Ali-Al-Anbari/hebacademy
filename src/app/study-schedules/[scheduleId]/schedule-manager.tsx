@@ -6,15 +6,15 @@ import { useRef, useState, type FormEvent } from "react";
 import { Archive, Pencil, Trash2 } from "lucide-react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCalendarDate, isCalendarDate, type ScheduleSelectionMode } from "@/lib/schedules";
-import { deleteSchedule, setScheduleArchived, updateSchedule } from "../actions";
+import { deleteSchedule, setScheduleArchived, startScheduleStudy, updateSchedule } from "../actions";
 
 type Card = { id: string; prompt: string; is_starred: boolean };
-type DateRow = { id: string; review_date: string; completed: boolean };
+type DateRow = { id: string; review_date: string; completed: boolean; resumable: boolean };
 type DateDraft = { key: string; id: string | null; review_date: string; completed: boolean };
 
 function localToday() {
@@ -34,6 +34,7 @@ export function ScheduleManager({ schedule, courseName, deckName, cards, selecte
 }) {
   const router = useRouter();
   const submitting = useRef(false);
+  const startingRef = useRef(false);
   const nextDateKey = useRef(0);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(schedule.name);
@@ -46,6 +47,7 @@ export function ScheduleManager({ schedule, courseName, deckName, cards, selecte
   })));
   const [newDate, setNewDate] = useState("");
   const [busy, setBusy] = useState(false);
+  const [starting, setStarting] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -159,6 +161,25 @@ export function ScheduleManager({ schedule, courseName, deckName, cards, selecte
     }
   }
 
+  async function startStudy(dateId: string | null) {
+    if (busy || startingRef.current) return;
+    startingRef.current = true;
+    setStarting(dateId ?? "anytime");
+    setMessage("");
+    try {
+      const result = await startScheduleStudy(schedule.id, dateId);
+      if (result.error || !result.url) {
+        setMessage(result.error ?? "Could not start studying.");
+        startingRef.current = false;
+        setStarting(null);
+      } else router.push(result.url);
+    } catch {
+      setMessage("Could not start studying. Please try again.");
+      startingRef.current = false;
+      setStarting(null);
+    }
+  }
+
   if (editing) {
     return (
       <form onSubmit={save} className="surface-panel mt-5 space-y-7">
@@ -197,10 +218,11 @@ export function ScheduleManager({ schedule, courseName, deckName, cards, selecte
       </div>
       {schedule.description && <p className="mt-5 whitespace-pre-wrap break-words text-sm text-muted-foreground">{schedule.description}</p>}
       <div className="mt-6 grid gap-3 sm:grid-cols-2"><div className="surface-panel"><p className="text-sm text-muted-foreground">Selected cards</p><p className="mt-2 text-xl font-semibold tabular-nums">{selectedCardIds.length}</p></div><div className="surface-panel"><p className="text-sm text-muted-foreground">Exam date</p><p className="mt-2 text-base font-semibold">{schedule.examDate ? formatCalendarDate(schedule.examDate) : "No exam date"}</p></div></div>
-      <section className="mt-8" aria-labelledby="schedule-review-dates"><h2 id="schedule-review-dates" className="section-title">Review dates</h2><div className="mt-3 grid gap-4 sm:grid-cols-2"><div><h3 className="text-sm font-semibold text-foreground">Scheduled</h3>{incompleteDates.length ? <ul className="mt-2 space-y-2">{incompleteDates.map((date) => <li key={date.id} className="rounded-md border border-border bg-white px-3 py-2 text-sm">{formatCalendarDate(date.review_date)}</li>)}</ul> : <p className="field-hint mt-2">No incomplete dates.</p>}</div><div><h3 className="text-sm font-semibold text-foreground">Completed</h3>{completedDates.length ? <ul className="mt-2 space-y-2">{completedDates.map((date) => <li key={date.id} className="rounded-md border border-border bg-white px-3 py-2 text-sm">{formatCalendarDate(date.review_date)}</li>)}</ul> : <p className="field-hint mt-2">No completed dates yet.</p>}</div></div></section>
+      <section className="mt-8" aria-labelledby="schedule-study"><h2 id="schedule-study" className="section-title">Study this schedule</h2><p className="page-description mt-2">Study these saved cards whenever you like. Studying now does not complete a planned review date.</p><Button type="button" className="mt-4 w-full sm:w-auto" disabled={busy || Boolean(starting) || selectedCards.length === 0} onClick={() => void startStudy(null)}>{starting === "anytime" ? "Starting…" : "Study Now"}</Button>{selectedCards.length === 0 && <p className="field-hint mt-2">Add cards with Edit Schedule to enable studying.</p>}</section>
+      <section className="mt-8" aria-labelledby="schedule-review-dates"><h2 id="schedule-review-dates" className="section-title">Review dates</h2><div className="mt-3 grid gap-4 sm:grid-cols-2"><div><h3 className="text-sm font-semibold text-foreground">Upcoming</h3>{incompleteDates.length ? <ul className="mt-2 space-y-2">{incompleteDates.map((date) => <li key={date.id} className="flex flex-col gap-2 rounded-md border border-border bg-white px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"><span>{formatCalendarDate(date.review_date)}</span><Button type="button" variant="secondary" disabled={busy || Boolean(starting) || (selectedCards.length === 0 && !date.resumable)} onClick={() => void startStudy(date.id)}>{starting === date.id ? "Starting…" : date.resumable ? "Resume review" : "Study this review"}</Button></li>)}</ul> : <p className="field-hint mt-2">No incomplete dates.</p>}</div><div><h3 className="text-sm font-semibold text-foreground">Completed</h3>{completedDates.length ? <ul className="mt-2 space-y-2">{completedDates.map((date) => <li key={date.id} className="rounded-md border border-border bg-white px-3 py-2 text-sm">{formatCalendarDate(date.review_date)} · Completed</li>)}</ul> : <p className="field-hint mt-2">No completed dates yet.</p>}</div></div></section>
       <section className="mt-8" aria-labelledby="selected-schedule-cards"><h2 id="selected-schedule-cards" className="section-title">Selected cards</h2>{selectedCards.length ? <ul className="mt-3 space-y-2">{selectedCards.map((card) => <li key={card.id} className="flex items-start justify-between gap-3 rounded-md border border-border bg-white px-4 py-3 text-sm"><span className="min-w-0 whitespace-pre-wrap break-words">{card.prompt}</span>{card.is_starred && <span className="shrink-0 text-xs text-muted-foreground">★ Starred</span>}</li>)}</ul> : <p className="page-description mt-2">No cards selected. Use Edit Schedule to add cards.</p>}</section>
       {message && <p role="alert" className="notice-error mt-6 text-sm">{message}</p>}
-      <div className="mt-8 flex flex-col gap-2 border-t border-border pt-5 sm:flex-row sm:flex-wrap"><Button render={<Link href="/" />} variant="secondary">Back to Dashboard</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => void toggleArchive()}><Archive /> {schedule.archived ? "Unarchive" : "Archive"}</Button><Button type="button" variant="destructive" disabled={busy} onClick={() => setConfirmDelete(true)}><Trash2 /> Delete schedule</Button></div>
+      <div className="mt-8 flex flex-col gap-2 border-t border-border pt-5 sm:flex-row sm:flex-wrap"><Link href="/" className={buttonVariants({ variant: "secondary" })}>Back to Dashboard</Link><Button type="button" variant="secondary" disabled={busy} onClick={() => void toggleArchive()}><Archive /> {schedule.archived ? "Unarchive" : "Archive"}</Button><Button type="button" variant="destructive" disabled={busy} onClick={() => setConfirmDelete(true)}><Trash2 /> Delete schedule</Button></div>
       <AlertDialog open={confirmDelete} onOpenChange={(open) => { if (!busy) setConfirmDelete(open); }}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete this schedule?</AlertDialogTitle><AlertDialogDescription>“{schedule.name}” and its planned dates will be removed. Existing study sessions and card review history are preserved. This cannot be undone.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel><AlertDialogAction variant="destructive" disabled={busy} onClick={() => void remove()}>{busy ? "Deleting…" : "Delete schedule"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     </>
   );

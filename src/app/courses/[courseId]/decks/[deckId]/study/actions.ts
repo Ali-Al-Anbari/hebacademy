@@ -35,7 +35,7 @@ async function ownedStudy(courseId: string, deckId: string, sessionId?: string) 
 
   if (sessionId) {
     const { data: session, error: sessionError } = await supabase
-      .from("study_sessions").select("id, completed_at, selected_card_ids")
+      .from("study_sessions").select("id, completed_at, selected_card_ids, study_schedule_date_id")
       .eq("id", sessionId).eq("deck_id", deckId).eq("user_id", userId)
       .eq("mode", "flashcards").maybeSingle();
     if (sessionError) console.error("Failed to verify study session:", sessionError);
@@ -121,14 +121,25 @@ async function completeSession(
   const state = await progress(context, deckId, sessionId);
   if (!state) return null;
   if (state.complete && !context.session?.completed_at) {
-    const { error } = await context.supabase.from("study_sessions")
+    const { data, error } = await context.supabase.from("study_sessions")
       .update({ completed_at: new Date().toISOString() })
       .eq("id", sessionId).eq("deck_id", deckId).eq("user_id", context.userId)
-      .is("completed_at", null);
-    if (error) {
-      console.error("Failed to complete study session:", error);
-      return null;
+      .is("completed_at", null).select("id, completed_at").maybeSingle();
+    if (error || !data) {
+      const { data: latest, error: reloadError } = await context.supabase.from("study_sessions")
+        .select("completed_at").eq("id", sessionId).eq("deck_id", deckId)
+        .eq("user_id", context.userId).maybeSingle();
+      if (reloadError || !latest?.completed_at) {
+        console.error("Failed to complete study session:", error ?? reloadError ?? "No completed row");
+        return null;
+      }
     }
+  }
+  if (state.complete && context.session?.study_schedule_date_id) {
+    const { data: date, error } = await context.supabase.from("study_schedule_dates")
+      .select("study_schedule_id").eq("id", context.session.study_schedule_date_id).maybeSingle();
+    if (error) console.error("Failed to refresh scheduled review:", error);
+    if (date) revalidatePath(`/study-schedules/${date.study_schedule_id}`);
   }
   return state;
 }

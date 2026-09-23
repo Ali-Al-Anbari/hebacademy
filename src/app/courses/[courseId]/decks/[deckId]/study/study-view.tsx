@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { finishStudy, rateCard } from "./actions";
@@ -19,13 +19,14 @@ type StudyCard = {
   answerImageUrl: string | null;
 };
 
-export function StudyView({ courseId, deckId, sessionId, cards, reviews, completed }: {
+export function StudyView({ courseId, deckId, sessionId, cards, reviews, completed, returnScheduleId }: {
   courseId: string;
   deckId: string;
   sessionId: string;
   cards: StudyCard[];
   reviews: { card_id: string; rating: string }[];
   completed: boolean;
+  returnScheduleId: string | null;
 }) {
   const router = useRouter();
   const [reviewed, setReviewed] = useState(() => new Set(reviews.map((review) => review.card_id)));
@@ -99,7 +100,7 @@ export function StudyView({ courseId, deckId, sessionId, cards, reviews, complet
           <div><dt className="text-sm text-muted-foreground">Needs Practice</dt><dd className="mt-1 text-xl font-semibold tabular-nums text-gold">{counts.needs_practice}</dd></div>
           <div><dt className="text-sm text-muted-foreground">Mastered</dt><dd className="mt-1 text-xl font-semibold tabular-nums text-[#347a52]">{counts.mastered}</dd></div>
         </dl>
-        <Button render={<Link href={deckUrl} />} className="mt-7 w-full sm:w-auto">Back to Deck</Button>
+        <Link href={returnScheduleId ? `/study-schedules/${returnScheduleId}` : deckUrl} className={buttonVariants({ className: "mt-7 w-full sm:w-auto" })}>{returnScheduleId ? "Back to Schedule" : "Back to Deck"}</Link>
       </section>
     );
   }
