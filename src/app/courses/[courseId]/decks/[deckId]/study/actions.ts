@@ -1,13 +1,18 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getLatestDeckRatings, getOwnedStudyCards, getSessionRatings } from "@/lib/study-data";
+import { selectStudyCardIds, type StudyFilter } from "@/lib/study-filter";
 
 type Rating = "review_again" | "needs_practice" | "mastered";
 const validId = (id: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+const deckPath = (courseId: string, deckId: string) =>
+  `/courses/${courseId}/decks/${deckId}`;
 const studyPath = (courseId: string, deckId: string) =>
-  `/courses/${courseId}/decks/${deckId}/study`;
+  `${deckPath(courseId, deckId)}/study`;
 
 async function ownedStudy(courseId: string, deckId: string, sessionId?: string) {
   const supabase = await createClient();
@@ -30,7 +35,7 @@ async function ownedStudy(courseId: string, deckId: string, sessionId?: string) 
 
   if (sessionId) {
     const { data: session, error: sessionError } = await supabase
-      .from("study_sessions").select("id, completed_at")
+      .from("study_sessions").select("id, completed_at, selected_card_ids")
       .eq("id", sessionId).eq("deck_id", deckId).eq("user_id", userId)
       .eq("mode", "flashcards").maybeSingle();
     if (sessionError) console.error("Failed to verify study session:", sessionError);
@@ -40,23 +45,40 @@ async function ownedStudy(courseId: string, deckId: string, sessionId?: string) 
   return { supabase, userId };
 }
 
-export async function startStudy(courseId: string, deckId: string) {
+export async function startStudy(courseId: string, deckId: string, formData?: FormData) {
   const path = studyPath(courseId, deckId);
   const context = await ownedStudy(courseId, deckId);
   if (!context) redirect(`${path}?error=start`);
 
-  const { count, error: countError } = await context.supabase
-    .from("cards").select("id", { count: "exact", head: true })
-    .eq("deck_id", deckId).eq("user_id", context.userId);
-  if (countError) {
-    console.error("Failed to count cards before study:", countError);
+  const requestedFilter = formData instanceof FormData ? formData.get("filter") : null;
+  const allowedFilters = ["all", "starred", "review_again", "needs_practice", "not_studied"];
+  if (requestedFilter !== null && (typeof requestedFilter !== "string" || !allowedFilters.includes(requestedFilter))) {
     redirect(`${path}?error=start`);
   }
-  if (!count) redirect(path);
+  const filter = (requestedFilter ?? "all") as StudyFilter;
+
+  let selectedIds: string[];
+  try {
+    const cards = await getOwnedStudyCards(context.supabase, deckId, context.userId);
+    const needsHistory = filter === "review_again" || filter === "needs_practice" || filter === "not_studied";
+    const ratings = needsHistory
+      ? (await getLatestDeckRatings(context.supabase, deckId, context.userId, cards.length)).ratings
+      : new Map();
+    selectedIds = selectStudyCardIds(cards, ratings, filter);
+  } catch (error) {
+    console.error("Failed to select study cards:", error);
+    redirect(`${path}?error=start`);
+  }
+  if (!selectedIds.length) redirect(filter === "all" ? path : `${path}?error=empty`);
 
   const { data, error } = await context.supabase
     .from("study_sessions")
-    .insert({ user_id: context.userId, deck_id: deckId, mode: "flashcards" })
+    .insert({
+      user_id: context.userId,
+      deck_id: deckId,
+      mode: "flashcards",
+      ...(filter === "all" ? {} : { selected_card_ids: selectedIds }),
+    })
     .select("id").single();
   if (error) {
     console.error("Failed to start study session:", error);
@@ -70,23 +92,25 @@ async function progress(
   deckId: string,
   sessionId: string,
 ) {
-  const [cardsResult, reviewsResult] = await Promise.all([
-    context.supabase.from("cards").select("id")
-      .eq("deck_id", deckId).eq("user_id", context.userId),
-    context.supabase.from("card_reviews").select("card_id, rating")
-      .eq("study_session_id", sessionId).eq("user_id", context.userId),
-  ]);
-  if (cardsResult.error || reviewsResult.error) {
-    console.error("Failed to count study progress:", cardsResult.error ?? reviewsResult.error);
+  try {
+    const selectedCardIds = context.session?.selected_card_ids as string[] | null | undefined;
+    const [cardIds, ratings] = await Promise.all([
+      selectedCardIds !== null && selectedCardIds !== undefined
+        ? Promise.resolve(selectedCardIds)
+        : getOwnedStudyCards(context.supabase, deckId, context.userId).then((cards) => cards.map((card) => card.id)),
+      getSessionRatings(context.supabase, sessionId, context.userId),
+    ]);
+    const complete = cardIds.every((id) => ratings.has(id));
+    const counts = { review_again: 0, needs_practice: 0, mastered: 0 };
+    for (const id of cardIds) {
+      const rating = ratings.get(id);
+      if (rating) counts[rating] += 1;
+    }
+    return { complete, counts };
+  } catch (error) {
+    console.error("Failed to count study progress:", error);
     return null;
   }
-  const reviewed = new Set((reviewsResult.data ?? []).map((review) => review.card_id));
-  const complete = (cardsResult.data ?? []).every((card) => reviewed.has(card.id));
-  const counts = { review_again: 0, needs_practice: 0, mastered: 0 };
-  for (const review of reviewsResult.data ?? []) {
-    if (review.rating in counts) counts[review.rating as Rating] += 1;
-  }
-  return { complete, counts };
 }
 
 async function completeSession(
@@ -118,6 +142,10 @@ export async function rateCard(
   const context = await ownedStudy(courseId, deckId, sessionId);
   if (!context || !context.session) {
     return { error: "This study session is no longer active.", state: null };
+  }
+  const selectedCardIds = context.session.selected_card_ids as string[] | null;
+  if (selectedCardIds && !selectedCardIds.includes(cardId)) {
+    return { error: "This card is not in the selected study session.", state: null };
   }
   if (context.session.completed_at) {
     const { data: previous } = await context.supabase.from("card_reviews").select("id")
@@ -157,6 +185,7 @@ export async function rateCard(
   }
 
   const state = await completeSession(context, deckId, sessionId);
+  revalidatePath(deckPath(courseId, deckId));
   if (!state) return { error: "The rating was saved, but progress could not update. Try again.", state: null };
   return { error: null, state };
 }
@@ -167,5 +196,6 @@ export async function finishStudy(courseId: string, deckId: string, sessionId: s
   const state = await completeSession(context, deckId, sessionId);
   if (!state) return { error: "Could not complete the session. Please try again.", state: null };
   if (!state.complete) return { error: "Some cards still need a rating.", state };
+  revalidatePath(deckPath(courseId, deckId));
   return { error: null, state };
 }

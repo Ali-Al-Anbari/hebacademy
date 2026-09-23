@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
+import { getLatestDeckRatings } from "@/lib/study-data";
 
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
-type Rating = "review_again" | "needs_practice" | "mastered";
 
 export type DeckProgressSummary = {
   totalCards: number;
@@ -19,34 +19,7 @@ export async function getDeckProgress(
   userId: string,
   totalCards: number,
 ): Promise<DeckProgressSummary> {
-  const latestRatings = new Map<string, Rating>();
-  let latestReviewAt: string | null = null;
-
-  // Supabase limits returned rows, so page through history until every card has
-  // a latest review or there are no more reviews for this deck.
-  if (totalCards > 0) {
-    const pageSize = 1000;
-    for (let offset = 0; latestRatings.size < totalCards; offset += pageSize) {
-      const { data, error } = await supabase
-        .from("card_reviews")
-        .select("card_id, rating, reviewed_at, cards!inner(deck_id)")
-        .eq("user_id", userId)
-        .eq("cards.deck_id", deckId)
-        .order("reviewed_at", { ascending: false })
-        .order("id", { ascending: false })
-        .range(offset, offset + pageSize - 1);
-      if (error) throw error;
-      if (!data?.length) break;
-
-      latestReviewAt ??= data[0].reviewed_at;
-      for (const review of data) {
-        if (!latestRatings.has(review.card_id)) {
-          latestRatings.set(review.card_id, review.rating as Rating);
-        }
-      }
-      if (data.length < pageSize) break;
-    }
-  }
+  const { ratings: latestRatings, latestReviewAt } = await getLatestDeckRatings(supabase, deckId, userId, totalCards);
 
   const { data: sessions, count, error: sessionsError } = await supabase
     .from("study_sessions")

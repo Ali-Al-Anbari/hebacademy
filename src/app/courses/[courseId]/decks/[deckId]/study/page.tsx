@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getOwnedStudyCards, getSessionRatings } from "@/lib/study-data";
+import { resolveSessionCards } from "@/lib/study-filter";
 import { startStudy } from "./actions";
 import { StudyView } from "./study-view";
 import { StartStudyButton } from "./start-button";
@@ -36,31 +38,35 @@ export default async function StudyPage({
   if (deckResult?.error) console.error("Failed to load study deck:", deckResult.error);
   if (deckResult && !deckResult.error && !deckResult.data) notFound();
 
-  const cardsResult = deckResult?.data
-    ? await supabase.from("cards")
-        .select("id, prompt, answer, prompt_image_path, answer_image_path")
-        .eq("deck_id", deckId).eq("user_id", userId)
-        .order("position", { ascending: true }).order("id", { ascending: true })
-    : null;
-  if (cardsResult?.error) console.error("Failed to load study cards:", cardsResult.error);
-
   const sessionResult = sessionId && deckResult?.data
     ? await supabase.from("study_sessions")
-        .select("id, completed_at")
+        .select("id, completed_at, selected_card_ids")
         .eq("id", sessionId).eq("deck_id", deckId).eq("user_id", userId)
         .eq("mode", "flashcards").maybeSingle()
     : null;
   if (sessionResult?.error) console.error("Failed to load study session:", sessionResult.error);
   if (sessionResult && !sessionResult.error && !sessionResult.data) notFound();
 
-  const reviewsResult = sessionResult?.data
-    ? await supabase.from("card_reviews").select("card_id, rating")
-        .eq("study_session_id", sessionId).eq("user_id", userId)
-    : null;
-  if (reviewsResult?.error) console.error("Failed to load study reviews:", reviewsResult.error);
+  let allCards: Awaited<ReturnType<typeof getOwnedStudyCards>> = [];
+  let sessionRatings = new Map<string, string>();
+  let loadError = false;
+  if (deckResult?.data) {
+    try {
+      [allCards, sessionRatings] = await Promise.all([
+        getOwnedStudyCards(supabase, deckId, userId),
+        sessionResult?.data ? getSessionRatings(supabase, sessionId!, userId) : Promise.resolve(new Map<string, string>()),
+      ]);
+    } catch (error) {
+      console.error("Failed to load study cards or reviews:", error);
+      loadError = true;
+    }
+  }
 
-  const hasError = courseError || deckResult?.error || cardsResult?.error || sessionResult?.error || reviewsResult?.error;
-  const cards = hasError ? [] : await Promise.all((cardsResult?.data ?? []).map(async (card) => {
+  const selectedIds = sessionResult?.data?.selected_card_ids as string[] | null | undefined;
+  const selectedCards = resolveSessionCards(allCards, selectedIds ?? null);
+  const invalidSelection = selectedCards === null;
+  const hasError = courseError || deckResult?.error || sessionResult?.error || loadError || invalidSelection;
+  const cards = hasError || !selectedCards ? [] : await Promise.all(selectedCards.map(async (card) => {
     async function imageUrl(path: string | null) {
       if (!path) return null;
       const { data, error } = await supabase.storage.from("card-images").createSignedUrl(path, 3600);
@@ -78,6 +84,9 @@ export default async function StudyPage({
       answerImageUrl,
     };
   }));
+  const selectedSet = new Set(cards.map((card) => card.id));
+  const reviews = [...sessionRatings].filter(([cardId]) => selectedSet.has(cardId))
+    .map(([card_id, rating]) => ({ card_id, rating }));
 
   return (
     <main className="page-container page-container--narrow">
@@ -95,9 +104,11 @@ export default async function StudyPage({
           deckId={deckId}
           sessionId={sessionId}
           cards={cards}
-          reviews={reviewsResult?.data ?? []}
+          reviews={reviews}
           completed={Boolean(sessionResult.data.completed_at)}
         />
+      ) : query.error === "empty" ? (
+        <div className="empty-panel mt-8"><h2 className="empty-panel__title">No cards in that group yet.</h2><p className="empty-panel__copy">Choose another study group from the deck.</p></div>
       ) : cards.length === 0 ? (
         <div className="empty-panel mt-8"><h2 className="empty-panel__title">Nothing to study yet.</h2><p className="empty-panel__copy">This deck has no cards yet. Add cards before starting a study session.</p></div>
       ) : (

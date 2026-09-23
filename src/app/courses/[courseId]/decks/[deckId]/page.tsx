@@ -5,6 +5,7 @@ import { CardManager } from "./card-manager";
 import { DeckProgress, getDeckProgress } from "./progress";
 import { startStudy } from "./study/actions";
 import { StartStudyButton } from "./study/start-button";
+import { StudySelection } from "./study/selection";
 import { Button } from "@/components/ui/button";
 import { ListChecks } from "lucide-react";
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
@@ -46,12 +47,20 @@ export default async function DeckPage({
   if (cardResult?.error) console.error("Failed to load cards:", cardResult.error);
 
   let progress = null;
+  let starredCount: number | null = null;
   if (cardResult && !cardResult.error) {
     try {
       progress = await getDeckProgress(supabase, deckId, userId, cardResult.count ?? 0);
     } catch (error) {
       console.error("Failed to load deck progress:", error);
     }
+  }
+  if (deck) {
+    const { count, error } = await supabase.from("cards")
+      .select("id", { count: "exact", head: true })
+      .eq("deck_id", deckId).eq("user_id", userId).eq("is_starred", true);
+    if (error) console.error("Failed to count starred study cards:", error);
+    else starredCount = count ?? 0;
   }
 
   const cards = await Promise.all((cardResult?.data ?? []).map(async (card) => {
@@ -76,7 +85,7 @@ export default async function DeckPage({
       ) : (
         <>
           <header className="mt-3"><h1 className="page-title">{deck?.name}</h1><p className="mt-2 text-sm text-muted-foreground">{cards.length} {cards.length === 1 ? "card" : "cards"}</p>{deck?.description && <p className="page-description whitespace-pre-wrap">{deck.description}</p>}</header>
-          <nav aria-label="Study modes" className="mt-6 flex flex-col gap-2 sm:flex-row"><form action={startStudy.bind(null, courseId, deckId)}><StartStudyButton /></form><Button render={<Link href={`/courses/${courseId}/decks/${deckId}/quiz`} />} variant="outline" size="lg" className="w-full sm:w-auto"><ListChecks /> Quiz</Button></nav>
+          <nav aria-label="Study modes" className="mt-6 flex flex-col gap-2 sm:flex-row">{progress && starredCount !== null ? <StudySelection courseId={courseId} deckId={deckId} counts={{ all: progress.totalCards, starred: starredCount, review_again: progress.reviewAgain, needs_practice: progress.needsPractice, not_studied: progress.notStudied }} /> : <form action={startStudy.bind(null, courseId, deckId)}><StartStudyButton /></form>}<Button render={<Link href={`/courses/${courseId}/decks/${deckId}/quiz`} />} variant="outline" size="lg" className="w-full sm:w-auto"><ListChecks /> Quiz</Button></nav>
           {progress ? <DeckProgress summary={progress} /> : (
             <p role="alert" className="notice-error mt-8">Could not load study progress. Please refresh and try again.</p>
           )}
