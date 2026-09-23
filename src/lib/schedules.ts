@@ -11,6 +11,15 @@ export type ScheduleDraft = {
   reviewDates: string[];
 };
 
+export type ScheduleEdit = {
+  name: string;
+  description: string;
+  examDate: string;
+  selectionMode: ScheduleSelectionMode;
+  manualCardIds: string[];
+  reviewDates: { id: string | null; review_date: string }[];
+};
+
 // PostgreSQL date values and date inputs both use YYYY-MM-DD. Validate the
 // calendar day without converting it to UTC or a timestamp.
 export function isCalendarDate(value: string) {
