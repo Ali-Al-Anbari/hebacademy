@@ -5,6 +5,9 @@ import { CardManager } from "./card-manager";
 import { DeckProgress, getDeckProgress } from "./progress";
 import { startStudy } from "./study/actions";
 import { StartStudyButton } from "./study/start-button";
+import { Button } from "@/components/ui/button";
+import { ListChecks } from "lucide-react";
+import { AppBreadcrumb } from "@/components/app-breadcrumb";
 
 const validId = (id: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -66,27 +69,16 @@ export default async function DeckPage({
   }));
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 py-10 sm:px-8 sm:py-14">
-      <nav aria-label="Breadcrumb">
-        <Link href={`/courses/${courseId}`} className="inline-flex min-h-11 items-center gap-2 rounded-lg pr-3 text-sm font-medium text-teal-700 hover:text-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700">← Back to Course</Link>
-      </nav>
+    <main className="page-container">
+      <AppBreadcrumb items={[{ label: "Dashboard", href: "/" }, { label: course?.name ?? "Course", href: `/courses/${courseId}` }]} current={deck?.name ?? "Deck"} />
       {courseError || deckResult?.error || cardResult?.error ? (
-        <p role="alert" className="mt-9 rounded-xl border border-red-200 bg-white p-6 text-red-700">Could not load this deck. Please refresh and try again.</p>
+        <p role="alert" className="notice-error mt-9">Could not load this deck. Please refresh and try again.</p>
       ) : (
         <>
-          <div className="mt-9 border-b border-slate-200 pb-8">
-            <p className="text-sm font-medium text-teal-700">{course?.name}</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">{deck?.name}</h1>
-            {deck?.description && <p className="mt-3 whitespace-pre-wrap text-slate-600">{deck.description}</p>}
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <form action={startStudy.bind(null, courseId, deckId)} className="sm:w-auto">
-                <StartStudyButton />
-              </form>
-              <Link href={`/courses/${courseId}/decks/${deckId}/quiz`} className="inline-flex min-h-12 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-5 py-2.5 font-semibold text-slate-700 hover:border-teal-700 hover:bg-teal-50 hover:text-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 sm:w-auto">Start Quiz</Link>
-            </div>
-          </div>
+          <header className="mt-3"><h1 className="page-title">{deck?.name}</h1><p className="mt-2 text-sm text-muted-foreground">{cards.length} {cards.length === 1 ? "card" : "cards"}</p>{deck?.description && <p className="page-description whitespace-pre-wrap">{deck.description}</p>}</header>
+          <nav aria-label="Study modes" className="mt-6 flex flex-col gap-2 sm:flex-row"><form action={startStudy.bind(null, courseId, deckId)}><StartStudyButton /></form><Button render={<Link href={`/courses/${courseId}/decks/${deckId}/quiz`} />} variant="outline" size="lg" className="w-full sm:w-auto"><ListChecks /> Quiz</Button></nav>
           {progress ? <DeckProgress summary={progress} /> : (
-            <p role="alert" className="mt-8 rounded-xl border border-red-200 bg-white p-6 text-red-700">Could not load study progress. Please refresh and try again.</p>
+            <p role="alert" className="notice-error mt-8">Could not load study progress. Please refresh and try again.</p>
           )}
           <CardManager courseId={courseId} deckId={deckId} userId={userId} cards={cards} />
         </>

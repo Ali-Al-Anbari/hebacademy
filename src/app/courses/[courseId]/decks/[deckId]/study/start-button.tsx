@@ -1,12 +1,12 @@
 "use client";
 
 import { useFormStatus } from "react-dom";
+import { Play } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export function StartStudyButton() {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" disabled={pending} className="inline-flex min-h-12 w-full items-center justify-center rounded-lg bg-teal-700 px-5 py-2.5 font-semibold text-white hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:cursor-wait disabled:opacity-60 sm:w-auto">
-      {pending ? "Starting…" : "Start Study"}
-    </button>
+    <Button type="submit" disabled={pending} size="lg" className="w-full sm:w-auto"><Play className="fill-current" />{pending ? "Starting…" : "Flashcards"}</Button>
   );
 }

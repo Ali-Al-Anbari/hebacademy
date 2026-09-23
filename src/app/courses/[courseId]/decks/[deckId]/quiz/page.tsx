@@ -1,8 +1,8 @@
 import { randomInt } from "node:crypto";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { QuizView, type QuizQuestion } from "./quiz-view";
+import { AppBreadcrumb } from "@/components/app-breadcrumb";
 
 const validId = (id: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -102,22 +102,20 @@ export default async function QuizPage({
   }
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-5 py-10 sm:px-8 sm:py-14">
-      <nav aria-label="Breadcrumb">
-        <Link href={deckUrl} className="inline-flex min-h-11 items-center gap-2 rounded-lg pr-3 text-sm font-medium text-teal-700 hover:text-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700">← Back to Deck</Link>
-      </nav>
-      <div className="mt-9 border-b border-slate-200 pb-8">
-        <p className="text-sm font-medium text-teal-700">{course?.name}</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Quiz: {deckResult?.data?.name}</h1>
+    <main className="page-container page-container--narrow">
+      <AppBreadcrumb items={[{ label: "Dashboard", href: "/" }, { label: course?.name ?? "Course", href: `/courses/${courseId}` }, { label: deckResult?.data?.name ?? "Deck", href: deckUrl }]} current="Quiz" />
+      <div className="page-intro mt-2">
+        <p className="page-eyebrow">{course?.name} · Quiz</p>
+        <h1 className="page-title">Quiz: {deckResult?.data?.name}</h1>
       </div>
       {courseError || deckResult?.error || cardsError ? (
-        <p role="alert" className="mt-8 rounded-xl border border-red-200 bg-white p-6 text-red-700">Could not load this quiz. Please refresh and try again.</p>
+        <p role="alert" className="notice-error mt-8">Could not load this quiz. Please refresh and try again.</p>
       ) : cards.length < 2 ? (
-        <p className="mt-8 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">Add at least two cards to this deck before starting a quiz.</p>
+        <div className="empty-panel mt-8"><h2 className="empty-panel__title">A little more material first.</h2><p className="empty-panel__copy">Add at least two cards to this deck before starting a quiz.</p></div>
       ) : hasBlankAnswer ? (
-        <p className="mt-8 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">Every card needs an answer before this deck can be quizzed.</p>
+        <div className="empty-panel mt-8"><h2 className="empty-panel__title">Check your answers.</h2><p className="empty-panel__copy">Every card needs an answer before this deck can be quizzed.</p></div>
       ) : distinctAnswers.size < 2 ? (
-        <p className="mt-8 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">This deck needs at least two different answers for a multiple-choice quiz.</p>
+        <div className="empty-panel mt-8"><h2 className="empty-panel__title">More variety is needed.</h2><p className="empty-panel__copy">This deck needs at least two different answers for a multiple-choice quiz.</p></div>
       ) : (
         <QuizView questions={questions} deckUrl={deckUrl} />
       )}

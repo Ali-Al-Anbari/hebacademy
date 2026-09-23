@@ -77,12 +77,10 @@ export async function getDeckProgress(
 
 export function DeckProgress({ summary }: { summary: DeckProgressSummary }) {
   const stats = [
-    { label: "Total Cards", value: summary.totalCards },
-    { label: "Mastered", value: summary.mastered },
-    { label: "Needs Practice", value: summary.needsPractice },
-    { label: "Review Again", value: summary.reviewAgain },
-    { label: "Not Studied", value: summary.notStudied },
-    { label: "Completed Sessions", value: summary.completedSessions },
+    { label: "Mastered", value: summary.mastered, tone: "mastered" },
+    { label: "Needs Practice", value: summary.needsPractice, tone: "practice" },
+    { label: "Review Again", value: summary.reviewAgain, tone: "again" },
+    { label: "Not Studied", value: summary.notStudied, tone: "neutral" },
   ];
   const lastStudied = summary.lastStudiedAt
     ? `${new Intl.DateTimeFormat("en-US", {
@@ -93,18 +91,13 @@ export function DeckProgress({ summary }: { summary: DeckProgressSummary }) {
     : "Not studied yet";
 
   return (
-    <section aria-labelledby="deck-progress-heading" className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-      <h2 id="deck-progress-heading" className="text-xl font-semibold text-slate-900">Study Progress</h2>
-      <p className="mt-1 text-sm text-slate-600">Each card shows the result of its most recent review.</p>
-      <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {stats.map((stat) => (
-          <div key={stat.label} className="rounded-xl bg-slate-50 p-4">
-            <dt className="text-sm text-slate-600">{stat.label}</dt>
-            <dd className="mt-2 text-2xl font-semibold text-slate-900">{stat.value}</dd>
-          </div>
-        ))}
-      </dl>
-      <p className="mt-5 text-sm text-slate-600">Last studied: <time dateTime={summary.lastStudiedAt ?? undefined} className="font-medium text-slate-900">{lastStudied}</time></p>
+    <section aria-labelledby="deck-progress-heading" className="mt-8 border-t border-border pt-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><h2 id="deck-progress-heading" className="section-title">Study progress</h2><p className="section-meta">Current status from each card’s latest review.</p></div><p className="text-sm text-muted-foreground">Last studied <time dateTime={summary.lastStudiedAt ?? undefined} className="font-medium text-foreground">{lastStudied}</time></p></div>
+      <div className="mt-5 flex h-2 overflow-hidden rounded-full bg-muted" role="img" aria-label={`${summary.mastered} mastered, ${summary.needsPractice} needs practice, ${summary.reviewAgain} review again, ${summary.notStudied} not studied`}>
+        {summary.totalCards > 0 && <><span className="bg-[#6db18a]" style={{ width: `${summary.mastered / summary.totalCards * 100}%` }} /><span className="bg-[#e2ba66]" style={{ width: `${summary.needsPractice / summary.totalCards * 100}%` }} /><span className="bg-[#df8897]" style={{ width: `${summary.reviewAgain / summary.totalCards * 100}%` }} /></>}
+      </div>
+      <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{stats.map((stat) => <div key={stat.label} className={`progress-stat progress-stat--${stat.tone}`}><dt>{stat.label}</dt><dd>{stat.value}</dd></div>)}</dl>
+      <p className="mt-4 text-sm text-muted-foreground">{summary.totalCards} total {summary.totalCards === 1 ? "card" : "cards"} · {summary.completedSessions} completed {summary.completedSessions === 1 ? "session" : "sessions"}</p>
     </section>
   );
 }

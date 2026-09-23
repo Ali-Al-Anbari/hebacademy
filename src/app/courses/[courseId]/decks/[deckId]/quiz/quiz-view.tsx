@@ -3,6 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
+import { Check, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export type QuizQuestion = {
   id: string;
@@ -28,29 +30,25 @@ export function QuizView({ questions, deckUrl }: { questions: QuizQuestion[]; de
     const correct = results.filter((result) => result.correct).length;
     const missed = results.filter((result) => !result.correct);
     return (
-      <section className="mt-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <p className="text-sm font-medium text-teal-700">Quiz complete</p>
-        <h2 className="mt-2 text-2xl font-semibold text-slate-900">You finished this deck</h2>
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg bg-teal-50 p-4"><p className="text-sm text-teal-800">Correct</p><p className="mt-1 text-2xl font-semibold text-teal-900">{correct}</p></div>
-          <div className="rounded-lg bg-rose-50 p-4"><p className="text-sm text-rose-800">Incorrect</p><p className="mt-1 text-2xl font-semibold text-rose-900">{missed.length}</p></div>
-          <div className="rounded-lg bg-slate-50 p-4"><p className="text-sm text-slate-700">Score</p><p className="mt-1 text-2xl font-semibold text-slate-900">{Math.round((correct / questions.length) * 100)}%</p></div>
-        </div>
-        <h3 className="mt-8 text-lg font-semibold text-slate-900">Missed Questions</h3>
+      <section className="study-surface mt-5">
+        <p className="page-eyebrow">Quiz complete</p>
+        <div className="mt-4 flex flex-wrap items-baseline gap-3"><strong className="text-5xl font-semibold tabular-nums tracking-tight text-primary">{Math.round((correct / questions.length) * 100)}%</strong><h2 className="text-xl font-semibold text-foreground">You finished this quiz</h2></div>
+        <p className="mt-5 border-y border-border py-4 text-sm text-muted-foreground"><span className="font-semibold text-[#347a52]">{correct} correct</span><span className="mx-2">·</span><span className="font-semibold text-clay">{missed.length} incorrect</span><span className="mx-2">·</span>{questions.length} questions</p>
+        <h3 className="section-title mt-7">Missed Questions</h3>
         {missed.length === 0 ? (
-          <p className="mt-2 text-slate-600">None — you answered every question correctly.</p>
+          <p className="mt-2 text-muted-foreground">None — you answered every question correctly.</p>
         ) : (
           <ol className="mt-4 space-y-3">
             {missed.map((result) => (
-              <li key={result.question.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <p className="whitespace-pre-wrap break-words font-medium text-slate-900">{result.question.prompt}</p>
-                <p className="mt-3 whitespace-pre-wrap break-words text-sm text-rose-800">Your answer: {result.chosenAnswer}</p>
-                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-teal-800">Correct answer: {result.question.correctAnswer}</p>
+              <li key={result.question.id} className="rounded-xl bg-paper p-4 sm:p-5">
+                <p className="whitespace-pre-wrap break-words font-semibold text-ink">{result.question.prompt}</p>
+                <p className="mt-3 whitespace-pre-wrap break-words text-sm text-clay">Your answer: {result.chosenAnswer}</p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-[#347a52]">Correct answer: {result.question.correctAnswer}</p>
               </li>
             ))}
           </ol>
         )}
-        <Link href={deckUrl} className="mt-7 inline-flex rounded-lg bg-teal-700 px-5 py-2.5 font-medium text-white hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700">Back to Deck</Link>
+        <Button render={<Link href={deckUrl} />} className="mt-7 w-full sm:w-auto">Back to Deck</Button>
       </section>
     );
   }
@@ -68,40 +66,40 @@ export function QuizView({ questions, deckUrl }: { questions: QuizQuestion[]; de
   }
 
   return (
-    <section className="mt-8">
-      <p className="text-sm font-medium text-teal-700">Question {index + 1} of {questions.length}</p>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
-        <div className="h-full rounded-full bg-teal-700" style={{ width: `${Math.round((index / questions.length) * 100)}%` }} />
+    <section className="mt-5">
+      <div className="flex items-center justify-between"><p className="page-eyebrow">Multiple-choice quiz</p><p className="text-sm font-medium tabular-nums text-muted-foreground">Question {index + 1} of {questions.length}</p></div>
+      <div className="study-progress mt-3" aria-hidden="true">
+        <div style={{ width: `${Math.round((index / questions.length) * 100)}%` }} />
       </div>
-      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-        <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Prompt</p>
-        <h2 className="mt-3 whitespace-pre-wrap break-words text-xl font-semibold text-slate-900 sm:text-2xl">{question.prompt}</h2>
-        {question.promptImageUrl && <Image unoptimized src={question.promptImageUrl} alt="Prompt illustration" width={640} height={400} className="mt-5 max-h-72 w-auto max-w-full rounded-lg object-contain" />}
-        <p className="mt-8 text-sm font-medium text-slate-700">Choose an answer</p>
-        <div className="mt-3 grid gap-3">
-          {question.options.map((option) => {
+      <div className="study-surface mt-5 flex min-h-48 flex-col justify-center">
+        <p className="page-eyebrow">Prompt</p>
+        <h2 className="study-prompt mt-4 whitespace-pre-wrap">{question.prompt}</h2>
+        {question.promptImageUrl && <Image unoptimized src={question.promptImageUrl} alt="Prompt illustration" width={640} height={400} className="mt-5 max-h-72 w-auto max-w-full rounded-md object-contain" />}
+      </div>
+      <p className="mt-6 text-sm font-semibold text-ink">Choose an answer</p>
+      <div className="mt-3 grid gap-3">
+        {question.options.map((option, optionIndex) => {
             const correctOption = answered && option.key === question.correctKey;
             const wrongChoice = answered && option.key === selectedKey && !isCorrect;
             const color = correctOption
-              ? "border-teal-400 bg-teal-50 text-teal-900"
+              ? "quiz-choice--correct"
               : wrongChoice
-                ? "border-rose-400 bg-rose-50 text-rose-900"
-                : "border-slate-300 bg-white text-slate-900 hover:bg-slate-50";
+                ? "quiz-choice--wrong"
+                : "";
             return (
-              <button key={option.key} type="button" disabled={answered} onClick={() => setSelectedKey(option.key)} className={`min-h-12 w-full rounded-lg border px-4 py-3 text-left font-medium leading-relaxed whitespace-pre-wrap break-words focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:cursor-default ${color}`}>
-                {option.label}
+              <button key={option.key} type="button" disabled={answered} aria-pressed={selectedKey === option.key} onClick={() => setSelectedKey(option.key)} className={`quiz-choice flex items-center gap-3 whitespace-pre-wrap disabled:cursor-default ${color}`}>
+                <span className="quiz-choice__index" aria-hidden="true">{String.fromCharCode(65 + optionIndex)}</span><span className="flex-1">{option.label}</span>{correctOption && <Check className="size-5 shrink-0" aria-hidden="true" />}{wrongChoice && <X className="size-5 shrink-0" aria-hidden="true" />}
               </button>
             );
-          })}
-        </div>
-        {answered && (
-          <div role="status" className={`mt-6 rounded-lg p-4 ${isCorrect ? "bg-teal-50 text-teal-900" : "bg-rose-50 text-rose-900"}`}>
-            <p className="font-semibold">{isCorrect ? "Correct!" : "Not quite."}</p>
-            {!isCorrect && <p className="mt-1 whitespace-pre-wrap break-words">Correct answer: {question.correctAnswer}</p>}
-          </div>
-        )}
-        {answered && <button type="button" onClick={nextQuestion} className="mt-6 min-h-12 w-full rounded-lg bg-teal-700 px-5 py-2.5 font-semibold text-white hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 sm:w-auto">{index === questions.length - 1 ? "See Results" : "Next Question"}</button>}
+        })}
       </div>
+      {answered && (
+        <div role="status" className={`mt-5 rounded-md p-4 ${isCorrect ? "bg-[#edf8ef] text-[#205c38]" : "bg-[#fff0f1] text-clay"}`}>
+          <p className="font-semibold">{isCorrect ? "Correct!" : "Not quite."}</p>
+          {!isCorrect && <p className="mt-1 whitespace-pre-wrap break-words">Correct answer: {question.correctAnswer}</p>}
+        </div>
+      )}
+      {answered && <Button type="button" size="lg" onClick={nextQuestion} className="mt-6 w-full sm:w-auto">{index === questions.length - 1 ? "See Results" : "Next Question"}</Button>}
     </section>
   );
 }

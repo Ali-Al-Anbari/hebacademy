@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { startStudy } from "./actions";
 import { StudyView } from "./study-view";
 import { StartStudyButton } from "./start-button";
+import { AppBreadcrumb } from "@/components/app-breadcrumb";
 
 const validId = (id: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -80,17 +80,15 @@ export default async function StudyPage({
   }));
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-5 py-10 sm:px-8 sm:py-14">
-      <nav aria-label="Breadcrumb">
-        <Link href={`/courses/${courseId}/decks/${deckId}`} className="inline-flex min-h-11 items-center gap-2 rounded-lg pr-3 text-sm font-medium text-teal-700 hover:text-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700">← Back to Deck</Link>
-      </nav>
-      <div className="mt-9 border-b border-slate-200 pb-8">
-        <p className="text-sm font-medium text-teal-700">{course?.name}</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">Study {deckResult?.data?.name}</h1>
+    <main className="page-container page-container--narrow">
+      <AppBreadcrumb items={[{ label: "Dashboard", href: "/" }, { label: course?.name ?? "Course", href: `/courses/${courseId}` }, { label: deckResult?.data?.name ?? "Deck", href: `/courses/${courseId}/decks/${deckId}` }]} current="Study" />
+      <div className="page-intro mt-2">
+        <p className="page-eyebrow">{course?.name} · Flashcards</p>
+        <h1 className="page-title">Study {deckResult?.data?.name}</h1>
       </div>
 
       {hasError ? (
-        <p role="alert" className="mt-8 rounded-xl border border-red-200 bg-white p-6 text-red-700">Could not load this study session. Please refresh and try again.</p>
+        <p role="alert" className="notice-error mt-8">Could not load this study session. Please refresh and try again.</p>
       ) : sessionId && sessionResult?.data ? (
         <StudyView
           courseId={courseId}
@@ -101,11 +99,12 @@ export default async function StudyPage({
           completed={Boolean(sessionResult.data.completed_at)}
         />
       ) : cards.length === 0 ? (
-        <p className="mt-8 rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">This deck has no cards yet. Add cards before starting a study session.</p>
+        <div className="empty-panel mt-8"><h2 className="empty-panel__title">Nothing to study yet.</h2><p className="empty-panel__copy">This deck has no cards yet. Add cards before starting a study session.</p></div>
       ) : (
-        <div className="mt-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <p className="text-slate-600">Ready to study {cards.length} {cards.length === 1 ? "card" : "cards"}?</p>
-          {query.error === "start" && <p role="alert" className="mt-3 text-sm text-red-700">Could not start a session. Please try again.</p>}
+        <div className="surface-panel mt-8">
+          <p className="page-eyebrow">Ready when you are</p>
+          <p className="mt-3 text-lg text-ink">Study {cards.length} {cards.length === 1 ? "card" : "cards"} at your own pace.</p>
+          {query.error === "start" && <p role="alert" className="notice-error mt-3 text-sm">Could not start a session. Please try again.</p>}
           <form action={startStudy.bind(null, courseId, deckId)} className="mt-5">
             <StartStudyButton />
           </form>

@@ -4,6 +4,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { finishStudy, rateCard } from "./actions";
 
 type Rating = "review_again" | "needs_practice" | "mastered";
@@ -88,28 +91,28 @@ export function StudyView({ courseId, deckId, sessionId, cards, reviews, complet
   const deckUrl = `/courses/${courseId}/decks/${deckId}`;
   if (isComplete) {
     return (
-      <section className="mt-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <p className="text-sm font-medium text-teal-700">Study complete</p>
-        <h2 className="mt-2 text-2xl font-semibold text-slate-900">You finished this deck</h2>
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg bg-rose-50 p-4"><p className="text-sm text-rose-800">Review Again</p><p className="mt-1 text-2xl font-semibold text-rose-900">{counts.review_again}</p></div>
-          <div className="rounded-lg bg-amber-50 p-4"><p className="text-sm text-amber-800">Needs Practice</p><p className="mt-1 text-2xl font-semibold text-amber-900">{counts.needs_practice}</p></div>
-          <div className="rounded-lg bg-teal-50 p-4"><p className="text-sm text-teal-800">Mastered</p><p className="mt-1 text-2xl font-semibold text-teal-900">{counts.mastered}</p></div>
-        </div>
-        <Link href={deckUrl} className="mt-7 inline-flex rounded-lg bg-teal-700 px-5 py-2.5 font-medium text-white hover:bg-teal-800">Back to Deck</Link>
+      <section className="study-surface mt-5">
+        <p className="page-eyebrow">Study complete</p>
+        <h2 className="section-title mt-3">You finished this deck</h2>
+        <dl className="mt-6 flex flex-wrap gap-x-9 gap-y-4 border-y border-border py-5">
+          <div><dt className="text-sm text-muted-foreground">Review Again</dt><dd className="mt-1 text-xl font-semibold tabular-nums text-clay">{counts.review_again}</dd></div>
+          <div><dt className="text-sm text-muted-foreground">Needs Practice</dt><dd className="mt-1 text-xl font-semibold tabular-nums text-gold">{counts.needs_practice}</dd></div>
+          <div><dt className="text-sm text-muted-foreground">Mastered</dt><dd className="mt-1 text-xl font-semibold tabular-nums text-[#347a52]">{counts.mastered}</dd></div>
+        </dl>
+        <Button render={<Link href={deckUrl} />} className="mt-7 w-full sm:w-auto">Back to Deck</Button>
       </section>
     );
   }
 
   if (index < 0) {
     return (
-      <section className="mt-8 rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <h2 className="text-xl font-semibold text-slate-900">All loaded cards have ratings</h2>
-        <p className="mt-2 text-slate-600">Finish the session, or refresh if this deck changed while you were studying.</p>
-        {message && <p role="alert" className="mt-4 text-sm text-red-700">{message}</p>}
+      <section className="study-surface mt-5">
+        <h2 className="section-title">All loaded cards have ratings</h2>
+        <p className="page-description mt-2">Finish the session, or refresh if this deck changed while you were studying.</p>
+        {message && <p role="alert" className="notice-error mt-4 text-sm">{message}</p>}
         <div className="mt-5 flex flex-wrap gap-3">
-          <button type="button" disabled={busy} onClick={finish} className="rounded-lg bg-teal-700 px-5 py-2.5 font-medium text-white hover:bg-teal-800 disabled:opacity-60">Finish Session</button>
-          <button type="button" onClick={() => router.refresh()} className="rounded-lg border border-slate-300 px-5 py-2.5 text-slate-700 hover:bg-slate-50">Refresh Cards</button>
+          <Button type="button" disabled={busy} onClick={finish} className="w-full sm:w-auto">Finish Session</Button>
+          <Button type="button" variant="secondary" onClick={() => router.refresh()} className="w-full sm:w-auto">Refresh Cards</Button>
         </div>
       </section>
     );
@@ -117,38 +120,23 @@ export function StudyView({ courseId, deckId, sessionId, cards, reviews, complet
 
   const card = cards[index];
   return (
-    <section className="mt-8">
-      <p className="text-sm font-medium text-teal-700">Card {index + 1} of {cards.length}</p>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
-        <div className="h-full rounded-full bg-teal-700" style={{ width: `${Math.round((reviewed.size / cards.length) * 100)}%` }} />
+    <section className="mt-5">
+      <div className="flex items-center justify-between"><p className="page-eyebrow">Flashcard study</p><p className="text-sm font-medium tabular-nums text-muted-foreground">Card {index + 1} of {cards.length}</p></div>
+      <div className="study-progress mt-3" aria-hidden="true">
+        <div style={{ width: `${Math.round((reviewed.size / cards.length) * 100)}%` }} />
       </div>
-      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-        <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Prompt</p>
-        <h2 className="mt-3 whitespace-pre-wrap break-words text-xl font-semibold text-slate-900 sm:text-2xl">{card.prompt}</h2>
-        {card.promptImageUrl && <Image unoptimized src={card.promptImageUrl} alt="Prompt illustration" width={640} height={400} className="mt-5 max-h-72 w-auto max-w-full rounded-lg object-contain" />}
-
-        <label htmlFor="typed-response" className="mt-8 block text-sm font-medium text-slate-700">Your answer (optional)</label>
-        <textarea id="typed-response" value={typed} onChange={(event) => setTyped(event.target.value)} readOnly={revealed} rows={4} placeholder="Think it through before revealing…" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-3 leading-relaxed focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/20 read-only:bg-slate-50" />
-        <p className="mt-1 text-xs text-slate-500">This response stays on this screen and is not graded or saved.</p>
-
-        {!revealed ? (
-          <button type="button" onClick={() => setRevealed(true)} className="mt-6 min-h-12 w-full rounded-lg bg-teal-700 px-5 py-2.5 font-semibold text-white hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 sm:w-auto">Reveal Answer</button>
-        ) : (
-          <>
-            <div className="mt-7 border-t border-slate-200 pt-6">
-              <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Correct answer</p>
-              <p className="mt-3 whitespace-pre-wrap break-words text-lg text-slate-900">{card.answer}</p>
-              {card.answerImageUrl && <Image unoptimized src={card.answerImageUrl} alt="Answer illustration" width={640} height={400} className="mt-5 max-h-72 w-auto max-w-full rounded-lg object-contain" />}
-            </div>
-            <p className="mt-7 text-sm font-medium text-slate-700">How well did you know it?</p>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <button type="button" disabled={busy} onClick={() => rate("review_again")} className="min-h-12 rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 font-semibold text-rose-900 hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60">{busy ? "Saving…" : "Review Again"}</button>
-              <button type="button" disabled={busy} onClick={() => rate("needs_practice")} className="min-h-12 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-wait disabled:opacity-60">{busy ? "Saving…" : "Needs Practice"}</button>
-              <button type="button" disabled={busy} onClick={() => rate("mastered")} className="min-h-12 rounded-lg border border-teal-300 bg-teal-50 px-4 py-3 font-semibold text-teal-900 hover:bg-teal-100 disabled:cursor-wait disabled:opacity-60">{busy ? "Saving…" : "Mastered"}</button>
-            </div>
-          </>
-        )}
-        {message && <p role="alert" className="mt-4 text-sm text-red-700">{message}</p>}
+      <div className="study-surface mt-5 flex min-h-64 flex-col justify-center">
+        <p className="page-eyebrow">Prompt</p>
+        <h2 className="study-prompt mt-4 whitespace-pre-wrap">{card.prompt}</h2>
+        {card.promptImageUrl && <Image unoptimized src={card.promptImageUrl} alt="Prompt illustration" width={640} height={400} className="mt-5 max-h-72 w-auto max-w-full rounded-md object-contain" />}
+        {revealed && <div className="mt-7 border-t border-border pt-6"><p className="page-eyebrow">Answer</p><p className="mt-3 whitespace-pre-wrap break-words text-lg leading-relaxed text-ink">{card.answer}</p>{card.answerImageUrl && <Image unoptimized src={card.answerImageUrl} alt="Answer illustration" width={640} height={400} className="mt-5 max-h-72 w-auto max-w-full rounded-md object-contain" />}</div>}
+      </div>
+      <div className="mt-6">
+        <Label htmlFor="typed-response">Your answer <span className="font-normal text-muted-foreground">(optional)</span></Label>
+        <Textarea id="typed-response" value={typed} onChange={(event) => setTyped(event.target.value)} readOnly={revealed} rows={3} placeholder="Think it through before revealing…" className="mt-2 read-only:bg-muted" />
+        <p className="field-hint mt-2">This response stays on this screen and is not graded or saved.</p>
+        {!revealed ? <Button type="button" size="lg" onClick={() => setRevealed(true)} className="mt-5 w-full sm:w-auto">Reveal Answer</Button> : <><p className="mt-6 text-sm font-semibold text-ink">How well did you know it?</p><div className="mt-3 grid gap-3 sm:grid-cols-3"><button type="button" disabled={busy} onClick={() => rate("review_again")} className="rating-choice rating-choice--again">{busy ? "Saving…" : "Review Again"}</button><button type="button" disabled={busy} onClick={() => rate("needs_practice")} className="rating-choice rating-choice--practice">{busy ? "Saving…" : "Needs Practice"}</button><button type="button" disabled={busy} onClick={() => rate("mastered")} className="rating-choice rating-choice--mastered">{busy ? "Saving…" : "Mastered"}</button></div></>}
+        {message && <p role="alert" className="notice-error mt-4 text-sm">{message}</p>}
       </div>
     </section>
   );
