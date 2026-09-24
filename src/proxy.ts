@@ -31,9 +31,9 @@ export async function proxy(request: NextRequest) {
 
   const { data, error } = await supabase.auth.getClaims();
   const signedIn = !error && Boolean(data?.claims);
-  const onLoginPage = request.nextUrl.pathname === "/login";
+  const onAuthPage = ["/login", "/signup"].includes(request.nextUrl.pathname);
 
-  if ((!signedIn && !onLoginPage) || (signedIn && onLoginPage)) {
+  if ((!signedIn && !onAuthPage) || (signedIn && onAuthPage)) {
     const destination = signedIn ? "/" : "/login";
     const redirect = NextResponse.redirect(new URL(destination, request.url));
     authCookies.forEach(({ name, value, options }) =>
