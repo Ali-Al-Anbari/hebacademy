@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { Card, CardContent } from "@/components/ui/card";
 import { useLocalToday } from "@/lib/local-calendar";
 import { formatCalendarDate } from "@/lib/schedules";
 
@@ -17,13 +16,13 @@ export function ScheduleDashboardCard({ id, name, course, deck, cardCount, examD
   const dueToday = today ? incomplete.some((date) => date.reviewDate === today) : false;
   const next = today ? incomplete.find((date) => date.reviewDate >= today) : null;
   return (
-    <Card className="py-0 transition-colors hover:border-[#c9a1b1]">
-      <CardContent className="space-y-2 p-5">
-        <Link href={`/study-schedules/${id}`} className="block rounded-sm font-semibold text-foreground hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">{name}</Link>
-        <p className="text-sm text-muted-foreground">{course} · {deck} · {cardCount} {cardCount === 1 ? "card" : "cards"}</p>
-        <p className="text-sm text-foreground">{completed} of {dates.length} reviews completed{examDate ? ` · Exam: ${formatCalendarDate(examDate)}` : ""}</p>
-        {today && <p className="text-sm font-medium text-foreground">{dueToday ? "Due today" : next ? `Next review: ${formatCalendarDate(next.reviewDate)}` : dates.length && !incomplete.length ? "All reviews completed" : "No upcoming reviews"}{overdue > 0 ? ` · ${overdue} overdue` : ""}</p>}
-      </CardContent>
-    </Card>
+    <article className="schedule-row flex flex-col gap-2 px-1 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-5 sm:px-2">
+      <div className="min-w-0">
+        <Link href={`/study-schedules/${id}`} className="block break-words rounded-sm font-heading text-lg font-semibold leading-snug text-foreground hover:underline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring">{name}</Link>
+        <p className="mt-1 text-sm text-muted-foreground">{course} · {deck} · {cardCount} {cardCount === 1 ? "card" : "cards"}</p>
+        <p className="mt-1 text-sm text-foreground">{completed} of {dates.length} reviews completed{examDate ? ` · Exam: ${formatCalendarDate(examDate)}` : ""}</p>
+      </div>
+      {today && <p className="shrink-0 text-sm font-semibold text-foreground">{dueToday ? "Due today" : next ? `Next: ${formatCalendarDate(next.reviewDate)}` : dates.length && !incomplete.length ? "All reviews completed" : "No upcoming reviews"}{overdue > 0 ? ` · ${overdue} overdue` : ""}</p>}
+    </article>
   );
 }

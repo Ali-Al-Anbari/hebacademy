@@ -79,11 +79,11 @@ export function QuizView({ courseId, deckId, sessionId, questions, answers: init
     return (
       <section className="study-surface mt-5">
         <p className="page-eyebrow">Quiz complete</p>
-        <div className="mt-4 flex flex-wrap items-baseline gap-3"><strong className="text-5xl font-semibold tabular-nums tracking-tight text-primary">{Math.round((correct / questions.length) * 100)}%</strong><h2 className="text-xl font-semibold text-foreground">You finished this quiz</h2></div>
+        <div className="mt-4 flex flex-wrap items-baseline gap-3"><strong className="text-5xl font-semibold tabular-nums tracking-tight text-brand-ink">{Math.round((correct / questions.length) * 100)}%</strong><h2 className="text-xl font-semibold text-foreground">You finished this quiz</h2></div>
         <p className="mt-5 border-y border-border py-4 text-sm text-muted-foreground"><span className="font-semibold text-[#347a52]">{correct} correct</span><span className="mx-2">·</span><span className="font-semibold text-clay">{missed.length} incorrect</span><span className="mx-2">·</span>{questions.length} questions</p>
         <h3 className="section-title mt-7">Missed Questions</h3>
         {missed.length === 0 ? <p className="mt-2 text-muted-foreground">None — you answered every question correctly.</p>
-          : <ol className="mt-4 space-y-3">{missed.map(({ question, chosenAnswer }) => <li key={question.id} className="rounded-xl bg-paper p-4 sm:p-5"><p className="whitespace-pre-wrap break-words font-semibold text-ink">{question.prompt}</p><p className="mt-3 whitespace-pre-wrap break-words text-sm text-clay">Your answer: {chosenAnswer}</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-[#347a52]">Correct answer: {question.correctAnswer}</p></li>)}</ol>}
+          : <ol className="mt-4 space-y-3">{missed.map(({ question, chosenAnswer }) => <li key={question.id} className="rounded-lg border border-border bg-paper p-4 sm:p-5"><p className="whitespace-pre-wrap break-words font-semibold text-ink">{question.prompt}</p><p className="mt-3 whitespace-pre-wrap break-words text-sm text-clay">Your answer: {chosenAnswer}</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-[#347a52]">Correct answer: {question.correctAnswer}</p></li>)}</ol>}
         <Link href={deckUrl} className={buttonVariants({ className: "mt-7 w-full sm:w-auto" })}>Exit</Link>
       </section>
     );

@@ -7,7 +7,6 @@ import { startStudy } from "./study/actions";
 import { StartStudyButton } from "./study/start-button";
 import { StudySelection } from "./study/selection";
 import { buttonVariants } from "@/components/ui/button";
-import { ListChecks } from "lucide-react";
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
 import { readAnswers, readQuestions } from "@/lib/quiz-session";
 import type { StudyFilter } from "@/lib/study-filter";
@@ -147,8 +146,18 @@ export default async function DeckPage({
         <p role="alert" className="notice-error mt-9">Could not load this deck. Please refresh and try again.</p>
       ) : (
         <>
-          <header className="mt-3"><h1 className="page-title">{deck?.name}</h1><p className="mt-2 text-sm text-muted-foreground">{cards.length} {cards.length === 1 ? "card" : "cards"}</p>{deck?.description && <p className="page-description whitespace-pre-wrap">{deck.description}</p>}</header>
-          <nav aria-label="Study modes" className="mt-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap">{progress && starredCount !== null ? <StudySelection courseId={courseId} deckId={deckId} resumes={resumeStudy} counts={{ all: progress.totalCards, starred: starredCount, review_again: progress.reviewAgain, needs_practice: progress.needsPractice, not_studied: progress.notStudied }} /> : <form action={startStudy.bind(null, courseId, deckId)}><StartStudyButton /></form>}{latestResume && <Link href={latestResume} className={buttonVariants({ variant: "secondary", size: "lg", className: "w-full sm:w-auto" })}>{latestResumeLabel}</Link>}{legacyResume && legacyResume !== latestResume && <Link href={legacyResume} className={buttonVariants({ variant: "secondary", size: "lg", className: "w-full sm:w-auto" })}>Resume previous session</Link>}<Link href={`/courses/${courseId}/decks/${deckId}/quiz`} className={buttonVariants({ variant: "outline", size: "lg", className: "w-full sm:w-auto" })}><ListChecks /> New Quiz</Link>{resumeQuiz && <Link href={resumeQuiz} className={buttonVariants({ variant: "secondary", size: "lg", className: "w-full sm:w-auto" })}>Resume Quiz</Link>}</nav>
+          <header className="mt-3"><h1 className="page-title">{deck?.name}</h1><p className="mt-2 text-sm font-medium text-muted-foreground">{cards.length} {cards.length === 1 ? "card" : "cards"}</p>{deck?.description && <p className="page-description whitespace-pre-wrap">{deck.description}</p>}</header>
+          <section className="study-entry mt-7" aria-labelledby="study-entry-heading">
+            <h2 id="study-entry-heading" className="font-heading text-xl font-semibold">Study this deck</h2>
+            <p className="mt-1 text-sm text-foreground/75">Practice with flashcards or test your recall in a quiz.</p>
+            <nav aria-label="Study modes" className="mt-5 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">{progress && starredCount !== null ? <StudySelection courseId={courseId} deckId={deckId} resumes={resumeStudy} counts={{ all: progress.totalCards, starred: starredCount, review_again: progress.reviewAgain, needs_practice: progress.needsPractice, not_studied: progress.notStudied }} /> : <form action={startStudy.bind(null, courseId, deckId)}><StartStudyButton label="Study Flashcards" /></form>}<Link href={`/courses/${courseId}/decks/${deckId}/quiz`} className={buttonVariants({ variant: "outline", size: "lg", className: "order-2 w-full sm:w-auto" })}>Quiz</Link></nav>
+            {(latestResume || legacyResume || resumeQuiz) && <div className="study-entry__resumes mt-5 flex flex-col gap-2 pt-4 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-5">
+              <span className="text-sm font-semibold">Continue studying</span>
+              {latestResume && <Link href={latestResume} className="study-resume-link">{latestResumeLabel}</Link>}
+              {legacyResume && legacyResume !== latestResume && <Link href={legacyResume} className="study-resume-link">Resume previous session</Link>}
+              {resumeQuiz && <Link href={resumeQuiz} className="study-resume-link">Resume Quiz</Link>}
+            </div>}
+          </section>
           {progress ? <DeckProgress summary={progress} /> : (
             <p role="alert" className="notice-error mt-8">Could not load study progress. Please refresh and try again.</p>
           )}

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import { ScheduleForm } from "./schedule-form";
 
@@ -33,7 +33,7 @@ export default async function NewSchedulePage() {
         <div className="empty-panel mt-6">
           <h2 className="empty-panel__title">Create a course first</h2>
           <p className="empty-panel__copy">Schedules use cards from one of your existing decks.</p>
-          <Button render={<Link href="/" />} className="mt-5">Back to Dashboard</Button>
+          <Link href="/" className={buttonVariants({ className: "mt-5" })}>Back to Dashboard</Link>
         </div>
       ) : (
         <ScheduleForm courses={coursesResult.data} decks={decksResult.data ?? []} />

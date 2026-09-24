@@ -131,11 +131,11 @@ export function StudyView({ courseId, deckId, sessionId, cards, reviews, complet
       <div className="study-progress mt-3" aria-hidden="true">
         <div style={{ width: `${Math.round((reviewed.size / cards.length) * 100)}%` }} />
       </div>
-      <div className="study-surface mt-5 flex min-h-64 flex-col justify-center">
+      <div className="study-surface mt-5 flex min-h-72 flex-col justify-center">
         <p className="page-eyebrow">Prompt</p>
         <h2 className="study-prompt mt-4 whitespace-pre-wrap">{card.prompt}</h2>
         {card.promptImageUrl && <Image unoptimized src={card.promptImageUrl} alt="Prompt illustration" width={640} height={400} className="mt-5 max-h-72 w-auto max-w-full rounded-md object-contain" />}
-        {revealed && <div className="mt-7 border-t border-border pt-6"><p className="page-eyebrow">Answer</p><p className="mt-3 whitespace-pre-wrap break-words text-lg leading-relaxed text-ink">{card.answer}</p>{card.answerImageUrl && <Image unoptimized src={card.answerImageUrl} alt="Answer illustration" width={640} height={400} className="mt-5 max-h-72 w-auto max-w-full rounded-md object-contain" />}</div>}
+        {revealed && <div className="mt-7 border-t border-brand-100 pt-6"><p className="page-eyebrow">Answer</p><p className="mt-3 whitespace-pre-wrap break-words text-lg leading-relaxed text-ink">{card.answer}</p>{card.answerImageUrl && <Image unoptimized src={card.answerImageUrl} alt="Answer illustration" width={640} height={400} className="mt-5 max-h-72 w-auto max-w-full rounded-md object-contain" />}</div>}
       </div>
       <div className="mt-6">
         <Label htmlFor="typed-response">Your answer <span className="font-normal text-muted-foreground">(optional)</span></Label>

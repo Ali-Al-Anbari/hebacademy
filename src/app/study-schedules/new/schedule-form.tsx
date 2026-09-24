@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,7 +14,7 @@ type Course = { id: string; name: string };
 type Deck = { id: string; name: string; course_id: string };
 type Card = { id: string; prompt: string; answer: string; is_starred: boolean };
 
-const selectClass = "h-11 w-full rounded-md border border-input bg-white px-3.5 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/20 disabled:opacity-50 md:text-sm";
+const selectClass = "h-11 w-full rounded-lg border border-input bg-white px-3.5 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 disabled:opacity-50 md:text-sm";
 
 export function ScheduleForm({ courses, decks }: { courses: Course[]; decks: Deck[] }) {
   const router = useRouter();
@@ -164,7 +164,7 @@ export function ScheduleForm({ courses, decks }: { courses: Course[]; decks: Dec
         <fieldset disabled={!cardsLoaded || busy} className="space-y-2">
           <legend className="sr-only">Card selection method</legend>
           {([ ["all", "Entire deck", "All current cards"], ["starred", "Starred cards", "Only cards starred now"], ["manual", "Manual selection", "Pick cards individually"] ] as const).map(([value, title, description]) => (
-            <label key={value} className="flex cursor-pointer items-start gap-3 rounded-md border border-border p-3 has-checked:border-primary has-checked:bg-secondary/50">
+            <label key={value} className="mode-option flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3">
               <input type="radio" name="card-selection" value={value} checked={mode === value} onChange={() => setMode(value)} className="mt-1 accent-primary" />
               <span><span className="block font-medium text-foreground">{title}</span><span className="block text-sm text-muted-foreground">{description}</span></span>
             </label>
@@ -189,7 +189,7 @@ export function ScheduleForm({ courses, decks }: { courses: Course[]; decks: Dec
       </section>
 
       {message && <p role="alert" className="notice-error text-sm">{message}{partialId && <> <Link href={`/study-schedules/${partialId}`} className="font-semibold underline">View the partial schedule</Link>.</>}</p>}
-      <div className="flex flex-col-reverse gap-2 border-t border-border pt-5 sm:flex-row sm:justify-end"><Button render={<Link href="/" />} variant="secondary" className="w-full sm:w-auto">Cancel</Button><Button type="submit" disabled={busy || loadingCards || !cardsLoaded} className="w-full sm:w-auto">{busy ? "Saving…" : "Create schedule"}</Button></div>
+      <div className="flex flex-col-reverse gap-2 border-t border-border pt-5 sm:flex-row sm:justify-end"><Link href="/" className={buttonVariants({ variant: "secondary", className: "w-full sm:w-auto" })}>Cancel</Link><Button type="submit" disabled={busy || loadingCards || !cardsLoaded} className="w-full sm:w-auto">{busy ? "Saving…" : "Create schedule"}</Button></div>
     </form>
   );
 }

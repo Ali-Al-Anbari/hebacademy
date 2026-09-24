@@ -64,10 +64,10 @@ export function DeckProgress({ summary }: { summary: DeckProgressSummary }) {
     : "Not studied yet";
 
   return (
-    <section aria-labelledby="deck-progress-heading" className="mt-8 border-t border-border pt-6">
+    <section aria-labelledby="deck-progress-heading" className="mt-7">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><h2 id="deck-progress-heading" className="section-title">Study progress</h2><p className="section-meta">Current status from each card’s latest review.</p></div><p className="text-sm text-muted-foreground">Last studied <time dateTime={summary.lastStudiedAt ?? undefined} className="font-medium text-foreground">{lastStudied}</time></p></div>
       <div className="mt-5 flex h-2 overflow-hidden rounded-full bg-muted" role="img" aria-label={`${summary.mastered} mastered, ${summary.needsPractice} needs practice, ${summary.reviewAgain} review again, ${summary.notStudied} not studied`}>
-        {summary.totalCards > 0 && <><span className="bg-[#6db18a]" style={{ width: `${summary.mastered / summary.totalCards * 100}%` }} /><span className="bg-[#e2ba66]" style={{ width: `${summary.needsPractice / summary.totalCards * 100}%` }} /><span className="bg-[#df8897]" style={{ width: `${summary.reviewAgain / summary.totalCards * 100}%` }} /></>}
+        {summary.totalCards > 0 && <><span className="bg-brand-400" style={{ width: `${summary.mastered / summary.totalCards * 100}%` }} /><span className="bg-brand-300" style={{ width: `${summary.needsPractice / summary.totalCards * 100}%` }} /><span className="bg-brand-200" style={{ width: `${summary.reviewAgain / summary.totalCards * 100}%` }} /></>}
       </div>
       <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">{stats.map((stat) => <div key={stat.label} className={`progress-stat progress-stat--${stat.tone}`}><dt>{stat.label}</dt><dd>{stat.value}</dd></div>)}</dl>
       <p className="mt-4 text-sm text-muted-foreground">{summary.totalCards} total {summary.totalCards === 1 ? "card" : "cards"} · {summary.completedSessions} completed {summary.completedSessions === 1 ? "session" : "sessions"}</p>

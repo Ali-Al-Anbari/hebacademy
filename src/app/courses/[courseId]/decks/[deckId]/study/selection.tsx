@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Circle, Layers3, Play, RotateCcw, Star, Target } from "lucide-react";
+import { Circle, Layers3, RotateCcw, Star, Target } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { StudyFilter } from "@/lib/study-filter";
@@ -28,7 +28,8 @@ export function StudySelection({ courseId, deckId, counts, resumes }: {
   ] as const;
 
   return <>
-    <Button type="button" size="lg" className="w-full sm:w-auto" onClick={() => setOpen(true)}><Play className="fill-current" /> Flashcards</Button>
+    <Button type="button" size="lg" className="w-full sm:w-auto" onClick={() => setOpen(true)}>Study Flashcards</Button>
+    <Button type="button" variant="secondary" size="lg" className="order-3 w-full bg-brand-200 hover:bg-brand-300 sm:w-auto" onClick={() => setOpen(true)}>Smart Study</Button>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="w-[calc(100%-1.5rem)] max-w-md sm:max-w-md">
         <DialogHeader>
@@ -38,9 +39,9 @@ export function StudySelection({ courseId, deckId, counts, resumes }: {
         <form action={startStudy.bind(null, courseId, deckId)} className="space-y-4">
           <fieldset className="space-y-2">
             <legend className="sr-only">Study group</legend>
-            {options.map(({ value, label, icon: Icon }) => <label key={value} className={`flex min-h-12 cursor-pointer items-center gap-3 rounded-md border px-3 py-2.5 transition-colors focus-within:ring-2 focus-within:ring-ring ${selected === value ? "border-primary bg-primary/5" : "border-border bg-white hover:bg-muted/60"}`}>
+            {options.map(({ value, label, icon: Icon }) => <label key={value} className={`mode-option flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 focus-within:ring-2 focus-within:ring-ring ${selected === value ? "border-primary bg-brand-50" : "border-border bg-white"}`}>
               <input type="radio" name="filter" value={value} checked={selected === value} onChange={() => setSelected(value)} className="sr-only" />
-              <Icon aria-hidden="true" className={`size-4 shrink-0 ${value === "not_studied" ? "text-muted-foreground" : "text-primary"}`} />
+              <Icon aria-hidden="true" className={`size-4 shrink-0 ${value === "not_studied" ? "text-muted-foreground" : "text-brand-ink"}`} />
               <span className="flex-1 text-sm font-medium">{label}</span>
               <span className="text-sm tabular-nums text-muted-foreground">{counts[value]}</span>
             </label>)}
