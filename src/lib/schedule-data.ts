@@ -57,19 +57,23 @@ export async function getCompletedScheduleDateIds(
 }
 
 export async function getUnfinishedScheduleDateIds(
-  supabase: SupabaseClient, userId: string, dateIds: string[],
+  supabase: SupabaseClient, userId: string, dateIds: string[], ownedCardIds: Set<string>,
 ) {
   const unfinished = new Set<string>();
   for (let offset = 0; offset < dateIds.length; offset += 100) {
     for (let page = 0; ;) {
       const { data, count, error } = await supabase.from("study_sessions")
-        .select("study_schedule_date_id", { count: "exact" })
+        .select("study_schedule_date_id, selected_card_ids", { count: "exact" })
         .eq("user_id", userId).is("completed_at", null)
         .in("study_schedule_date_id", dateIds.slice(offset, offset + 100))
         .order("id").range(page, page + 999);
       if (error || count === null) throw error ?? new Error("Missing unfinished session count");
       for (const row of data ?? []) {
-        if (row.study_schedule_date_id) unfinished.add(row.study_schedule_date_id);
+        const ids = row.selected_card_ids as string[] | null;
+        if (row.study_schedule_date_id && ids?.length
+          && new Set(ids).size === ids.length && ids.every((id) => ownedCardIds.has(id))) {
+          unfinished.add(row.study_schedule_date_id);
+        }
       }
       if (page + (data?.length ?? 0) >= count) break;
       if (!data?.length) throw new Error("Unfinished session query stopped early");

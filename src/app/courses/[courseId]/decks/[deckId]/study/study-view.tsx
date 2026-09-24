@@ -90,6 +90,10 @@ export function StudyView({ courseId, deckId, sessionId, cards, reviews, complet
   }
 
   const deckUrl = `/courses/${courseId}/decks/${deckId}`;
+  const exitUrl = returnScheduleId ? `/study-schedules/${returnScheduleId}` : deckUrl;
+  const exit = busy
+    ? <span aria-disabled="true" className={buttonVariants({ variant: "secondary", className: "opacity-50" })}>Saving…</span>
+    : <Link href={exitUrl} className={buttonVariants({ variant: "secondary" })}>Exit</Link>;
   if (isComplete) {
     return (
       <section className="study-surface mt-5">
@@ -100,7 +104,7 @@ export function StudyView({ courseId, deckId, sessionId, cards, reviews, complet
           <div><dt className="text-sm text-muted-foreground">Needs Practice</dt><dd className="mt-1 text-xl font-semibold tabular-nums text-gold">{counts.needs_practice}</dd></div>
           <div><dt className="text-sm text-muted-foreground">Mastered</dt><dd className="mt-1 text-xl font-semibold tabular-nums text-[#347a52]">{counts.mastered}</dd></div>
         </dl>
-        <Link href={returnScheduleId ? `/study-schedules/${returnScheduleId}` : deckUrl} className={buttonVariants({ className: "mt-7 w-full sm:w-auto" })}>{returnScheduleId ? "Back to Schedule" : "Back to Deck"}</Link>
+        <div className="mt-7">{exit}</div>
       </section>
     );
   }
@@ -108,6 +112,7 @@ export function StudyView({ courseId, deckId, sessionId, cards, reviews, complet
   if (index < 0) {
     return (
       <section className="study-surface mt-5">
+        <div className="mb-5">{exit}</div>
         <h2 className="section-title">All loaded cards have ratings</h2>
         <p className="page-description mt-2">Finish the session, or refresh if this deck changed while you were studying.</p>
         {message && <p role="alert" className="notice-error mt-4 text-sm">{message}</p>}
@@ -122,7 +127,7 @@ export function StudyView({ courseId, deckId, sessionId, cards, reviews, complet
   const card = cards[index];
   return (
     <section className="mt-5">
-      <div className="flex items-center justify-between"><p className="page-eyebrow">Flashcard study</p><p className="text-sm font-medium tabular-nums text-muted-foreground">Card {index + 1} of {cards.length}</p></div>
+      <div className="flex flex-wrap items-center justify-between gap-3"><p className="page-eyebrow">Flashcard study</p><div className="flex items-center gap-3"><p className="text-sm font-medium tabular-nums text-muted-foreground">Card {index + 1} of {cards.length}</p>{exit}</div></div>
       <div className="study-progress mt-3" aria-hidden="true">
         <div style={{ width: `${Math.round((reviewed.size / cards.length) * 100)}%` }} />
       </div>

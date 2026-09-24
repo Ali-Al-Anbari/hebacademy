@@ -42,7 +42,7 @@ export default async function StudyPage({
 
   const sessionResult = sessionId && deckResult?.data
     ? await supabase.from("study_sessions")
-        .select("id, completed_at, selected_card_ids, study_schedule_date_id")
+        .select("id, completed_at, selected_card_ids, study_schedule_date_id, study_schedule_id")
         .eq("id", sessionId).eq("deck_id", deckId).eq("user_id", userId)
         .eq("mode", "flashcards").maybeSingle()
     : null;
@@ -58,8 +58,8 @@ export default async function StudyPage({
         .select("study_schedule_id").eq("id", dateId).maybeSingle();
       if (error) console.error("Failed to load scheduled study destination:", error);
       scheduleId = date?.study_schedule_id ?? null;
-    } else if (typeof query.schedule === "string" && validId(query.schedule)) {
-      scheduleId = query.schedule;
+    } else if (sessionResult.data.study_schedule_id) {
+      scheduleId = sessionResult.data.study_schedule_id;
     }
     if (scheduleId) {
       const { data: schedule, error } = await supabase.from("study_schedules")
@@ -118,6 +118,7 @@ export default async function StudyPage({
         <p className="page-eyebrow">{course?.name} · Flashcards</p>
         <h1 className="page-title">Study {deckResult?.data?.name}</h1>
       </div>
+      {(!sessionResult?.data || hasError) && <Link href={returnScheduleId ? `/study-schedules/${returnScheduleId}` : `/courses/${courseId}/decks/${deckId}`} className={buttonVariants({ variant: "secondary", className: "mt-5" })}>Exit</Link>}
 
       {hasError ? (
         <div className="mt-8"><p role="alert" className="notice-error">{invalidSelection && sessionId

@@ -414,6 +414,39 @@ export async function startScheduleStudy(scheduleId: string, dateId: string | nu
   }
   const studyPath = `/courses/${course.id}/decks/${context.deckId}/study`;
   const sessionUrl = (id: string) => `${studyPath}?session=${id}&schedule=${scheduleId}`;
+  let cards: Awaited<ReturnType<typeof getOwnedStudyCards>>;
+  try {
+    cards = await getOwnedStudyCards(context.supabase, context.deckId, context.userId);
+  } catch (error) {
+    console.error("Failed to load scheduled study cards:", error);
+    return failure("Could not load this schedule's cards. Please try again.");
+  }
+  const ownedCardIds = new Set(cards.map((card) => card.id));
+
+  async function latestUsableSession() {
+    for (let offset = 0; ;) {
+      let request = context!.supabase.from("study_sessions")
+        .select("id, selected_card_ids", { count: "exact" })
+        .eq("user_id", context!.userId).eq("deck_id", context!.deckId)
+        .eq("mode", "flashcards").is("completed_at", null)
+        .order("started_at", { ascending: false }).order("id", { ascending: false })
+        .range(offset, offset + 99);
+      request = dateId
+        ? request.eq("study_schedule_date_id", dateId)
+        : request.eq("study_schedule_id", scheduleId).is("study_schedule_date_id", null);
+      const { data, count, error } = await request;
+      if (error || count === null) throw error ?? new Error("Missing unfinished session count");
+      const found = (data ?? []).find((session) => {
+        const ids = session.selected_card_ids as string[] | null;
+        return ids?.length && new Set(ids).size === ids.length
+          && ids.every((id) => ownedCardIds.has(id));
+      });
+      if (found) return found.id;
+      if (offset + (data?.length ?? 0) >= count) return null;
+      if (!data?.length) throw new Error("Unfinished session query stopped early");
+      offset += data.length;
+    }
+  }
 
   if (dateId) {
     const { data: date, error: dateError } = await context.supabase.from("study_schedule_dates")
@@ -430,44 +463,48 @@ export async function startScheduleStudy(scheduleId: string, dateId: string | nu
       return failure("Could not check this review date. Please try again.");
     }
 
-    const { data: unfinished, error: resumeError } = await context.supabase.from("study_sessions")
-      .select("id, selected_card_ids")
-      .eq("user_id", context.userId).eq("deck_id", context.deckId)
-      .eq("mode", "flashcards").eq("study_schedule_date_id", dateId)
-      .is("completed_at", null)
-      .order("started_at", { ascending: false }).order("id", { ascending: false })
-      .limit(1).maybeSingle();
-    if (resumeError) {
-      console.error("Failed to find unfinished scheduled session:", resumeError);
+    let unfinishedId: string | null;
+    try {
+      unfinishedId = await latestUsableSession();
+    } catch (error) {
+      console.error("Failed to find unfinished scheduled session:", error);
       return failure("Could not check for an unfinished review. Please try again.");
     }
-    if (unfinished?.selected_card_ids?.length) return { error: null, url: sessionUrl(unfinished.id) };
+    if (unfinishedId) return { error: null, url: sessionUrl(unfinishedId) };
+  } else {
+    let unfinishedId: string | null;
+    try {
+      unfinishedId = await latestUsableSession();
+    } catch (error) {
+      console.error("Failed to find unfinished schedule study:", error);
+      return failure("Could not check for an unfinished session. Please try again.");
+    }
+    if (unfinishedId) return { error: null, url: sessionUrl(unfinishedId) };
   }
 
   let selectedIds: string[];
   try {
-    const [cards, savedIds] = await Promise.all([
-      getOwnedStudyCards(context.supabase, context.deckId, context.userId),
-      getScheduleCardIds(context.supabase, scheduleId),
-    ]);
+    const savedIds = await getScheduleCardIds(context.supabase, scheduleId);
     const saved = new Set(savedIds);
     selectedIds = cards.filter((card) => saved.has(card.id)).map((card) => card.id);
     if (selectedIds.length !== saved.size) {
       console.warn("Some saved schedule cards are no longer available:", scheduleId);
     }
   } catch (error) {
-    console.error("Failed to load scheduled study cards:", error);
+    console.error("Failed to load saved schedule selection:", error);
     return failure("Could not load this schedule's cards. Please try again.");
   }
   if (!selectedIds.length) return failure("This schedule has no cards. Edit it to add cards first.");
 
   const { data: session, error: insertError } = await context.supabase.from("study_sessions")
     .insert({ user_id: context.userId, deck_id: context.deckId, mode: "flashcards",
-      selected_card_ids: selectedIds, study_schedule_date_id: dateId })
+      selected_card_ids: selectedIds, study_schedule_date_id: dateId,
+      study_schedule_id: dateId ? null : scheduleId })
     .select("id").single();
   if (insertError || !session) {
     if (insertError) console.error("Failed to start scheduled study session:", insertError);
     return failure("Could not start this study session. Please refresh and try again.");
   }
+  refreshSchedule(scheduleId);
   return { error: null, url: sessionUrl(session.id) };
 }

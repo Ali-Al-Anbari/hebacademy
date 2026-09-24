@@ -41,6 +41,7 @@ export default async function SchedulePage({ params }: PageProps<"/study-schedul
   let dates: Awaited<ReturnType<typeof getScheduleDates>> = [];
   let completedIds = new Set<string>();
   let unfinishedIds = new Set<string>();
+  let resumeAnytime = false;
   let dataError = false;
   if (schedule && deckResult?.data && courseResult?.data) {
     try {
@@ -51,8 +52,21 @@ export default async function SchedulePage({ params }: PageProps<"/study-schedul
       ]);
       [completedIds, unfinishedIds] = await Promise.all([
         getCompletedScheduleDateIds(supabase, userId, dates.map((date) => date.id)),
-        getUnfinishedScheduleDateIds(supabase, userId, dates.map((date) => date.id)),
+        getUnfinishedScheduleDateIds(supabase, userId, dates.map((date) => date.id),
+          new Set(cards.map((card) => card.id))),
       ]);
+      const { data: anytime, error: anytimeError } = await supabase.from("study_sessions")
+        .select("selected_card_ids").eq("user_id", userId).eq("deck_id", deckResult.data.id)
+        .eq("study_schedule_id", scheduleId).is("study_schedule_date_id", null)
+        .is("completed_at", null).order("started_at", { ascending: false })
+        .limit(100);
+      if (anytimeError) throw anytimeError;
+      const ownedCardIds = new Set(cards.map((card) => card.id));
+      resumeAnytime = Boolean(anytime?.some((session) => {
+        const ids = session.selected_card_ids as string[] | null;
+        return ids?.length && new Set(ids).size === ids.length
+          && ids.every((id) => ownedCardIds.has(id));
+      }));
     } catch (error) {
       console.error("Failed to load schedule cards or dates:", error);
       dataError = true;
@@ -75,6 +89,7 @@ export default async function SchedulePage({ params }: PageProps<"/study-schedul
           deckName={deckResult?.data?.name ?? "Deck"}
           cards={cards.map(({ id, prompt, is_starred }) => ({ id, prompt, is_starred }))}
           selectedCardIds={selectedIds}
+          resumeAnytime={resumeAnytime}
           dates={dates.map((date) => ({ ...date, completed: completedIds.has(date.id), resumable: unfinishedIds.has(date.id) }))}
         />
       )}

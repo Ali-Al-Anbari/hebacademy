@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Circle, Layers3, Play, RotateCcw, Star, Target } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { StudyFilter } from "@/lib/study-filter";
 import { startStudy } from "./actions";
@@ -10,10 +11,11 @@ import { StartStudyButton } from "./start-button";
 
 type FilterCounts = Record<StudyFilter, number>;
 
-export function StudySelection({ courseId, deckId, counts }: {
+export function StudySelection({ courseId, deckId, counts, resumes }: {
   courseId: string;
   deckId: string;
   counts: FilterCounts;
+  resumes: Partial<Record<StudyFilter, string>>;
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<StudyFilter>("all");
@@ -44,6 +46,7 @@ export function StudySelection({ courseId, deckId, counts }: {
             </label>)}
           </fieldset>
           {counts[selected] === 0 && <p role="status" className="text-sm text-muted-foreground">No cards in this group yet. Choose another group to start studying.</p>}
+          {resumes[selected] && <Link href={resumes[selected]} className={buttonVariants({ variant: "secondary", className: "w-full" })}>Resume {options.find((option) => option.value === selected)?.label} session</Link>}
           <StartStudyButton disabled={counts[selected] === 0} label="Start Study" />
         </form>
       </DialogContent>

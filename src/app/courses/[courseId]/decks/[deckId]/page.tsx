@@ -6,9 +6,12 @@ import { DeckProgress, getDeckProgress } from "./progress";
 import { startStudy } from "./study/actions";
 import { StartStudyButton } from "./study/start-button";
 import { StudySelection } from "./study/selection";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { ListChecks } from "lucide-react";
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
+import { readAnswers, readQuestions } from "@/lib/quiz-session";
+import type { StudyFilter } from "@/lib/study-filter";
+import { getOwnedStudyCards } from "@/lib/study-data";
 
 const validId = (id: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -77,6 +80,66 @@ export default async function DeckPage({
     return { ...card, prompt_image_url: promptImageUrl, answer_image_url: answerImageUrl };
   }));
 
+  const resumeStudy: Partial<Record<StudyFilter, string>> = {};
+  let legacyResume: string | null = null;
+  let latestResume: string | null = null;
+  let latestResumeLabel = "Resume previous study";
+  let resumeQuiz: string | null = null;
+  if (deck) {
+    try {
+      const ownedCardIds = new Set((cardResult?.count ?? 0) > cards.length
+        ? (await getOwnedStudyCards(supabase, deckId, userId)).map((card) => card.id)
+        : cards.map((card) => card.id));
+      for (let offset = 0; ;) {
+        const { data, count, error } = await supabase.from("study_sessions")
+          .select("id, study_filter, selected_card_ids", { count: "exact" })
+          .eq("user_id", userId).eq("deck_id", deckId).eq("mode", "flashcards")
+          .is("completed_at", null).is("study_schedule_date_id", null)
+          .is("study_schedule_id", null)
+          .order("started_at", { ascending: false }).order("id", { ascending: false })
+          .range(offset, offset + 999);
+        if (error || count === null) throw error ?? new Error("Missing study session count");
+        for (const session of data ?? []) {
+          const filter = session.study_filter as StudyFilter | null;
+          const ids = session.selected_card_ids as string[] | null;
+          const valid = ids === null || (ids.length > 0 && new Set(ids).size === ids.length
+            && ids.every((id) => ownedCardIds.has(id)));
+          if (!valid) continue;
+          const url = `/courses/${courseId}/decks/${deckId}/study?session=${session.id}`;
+          if (!latestResume) {
+            latestResume = url;
+            latestResumeLabel = filter ? `Resume ${{
+              all: "All Cards", starred: "Starred", review_again: "Review Again",
+              needs_practice: "Needs Practice", not_studied: "Not Studied",
+            }[filter]}` : "Resume previous study";
+          }
+          if (filter && !resumeStudy[filter]) resumeStudy[filter] = url;
+          else if (!filter && !legacyResume) legacyResume = url;
+        }
+        if ((Object.keys(resumeStudy).length === 5 && legacyResume) || offset + (data?.length ?? 0) >= count) break;
+        if (!data?.length) break;
+        offset += data.length;
+      }
+      for (let offset = 0; !resumeQuiz;) {
+        const { data, count, error } = await supabase.from("quiz_sessions")
+          .select("id, questions, answers", { count: "exact" })
+          .eq("user_id", userId).eq("deck_id", deckId).is("completed_at", null)
+          .order("started_at", { ascending: false }).order("id", { ascending: false })
+          .range(offset, offset + 99);
+        if (error || count === null) throw error ?? new Error("Missing quiz session count");
+        const valid = (data ?? []).find((session) => {
+          const questions = readQuestions(session.questions);
+          return questions && readAnswers(session.answers, questions);
+        });
+        if (valid) resumeQuiz = `/courses/${courseId}/decks/${deckId}/quiz?session=${valid.id}`;
+        if (offset + (data?.length ?? 0) >= count || !data?.length) break;
+        offset += data.length;
+      }
+    } catch (error) {
+      console.error("Failed to load resumable sessions:", error);
+    }
+  }
+
   return (
     <main className="page-container">
       <AppBreadcrumb items={[{ label: "Dashboard", href: "/" }, { label: course?.name ?? "Course", href: `/courses/${courseId}` }]} current={deck?.name ?? "Deck"} />
@@ -85,7 +148,7 @@ export default async function DeckPage({
       ) : (
         <>
           <header className="mt-3"><h1 className="page-title">{deck?.name}</h1><p className="mt-2 text-sm text-muted-foreground">{cards.length} {cards.length === 1 ? "card" : "cards"}</p>{deck?.description && <p className="page-description whitespace-pre-wrap">{deck.description}</p>}</header>
-          <nav aria-label="Study modes" className="mt-6 flex flex-col gap-2 sm:flex-row">{progress && starredCount !== null ? <StudySelection courseId={courseId} deckId={deckId} counts={{ all: progress.totalCards, starred: starredCount, review_again: progress.reviewAgain, needs_practice: progress.needsPractice, not_studied: progress.notStudied }} /> : <form action={startStudy.bind(null, courseId, deckId)}><StartStudyButton /></form>}<Button render={<Link href={`/courses/${courseId}/decks/${deckId}/quiz`} />} variant="outline" size="lg" className="w-full sm:w-auto"><ListChecks /> Quiz</Button></nav>
+          <nav aria-label="Study modes" className="mt-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap">{progress && starredCount !== null ? <StudySelection courseId={courseId} deckId={deckId} resumes={resumeStudy} counts={{ all: progress.totalCards, starred: starredCount, review_again: progress.reviewAgain, needs_practice: progress.needsPractice, not_studied: progress.notStudied }} /> : <form action={startStudy.bind(null, courseId, deckId)}><StartStudyButton /></form>}{latestResume && <Link href={latestResume} className={buttonVariants({ variant: "secondary", size: "lg", className: "w-full sm:w-auto" })}>{latestResumeLabel}</Link>}{legacyResume && legacyResume !== latestResume && <Link href={legacyResume} className={buttonVariants({ variant: "secondary", size: "lg", className: "w-full sm:w-auto" })}>Resume previous session</Link>}<Link href={`/courses/${courseId}/decks/${deckId}/quiz`} className={buttonVariants({ variant: "outline", size: "lg", className: "w-full sm:w-auto" })}><ListChecks /> New Quiz</Link>{resumeQuiz && <Link href={resumeQuiz} className={buttonVariants({ variant: "secondary", size: "lg", className: "w-full sm:w-auto" })}>Resume Quiz</Link>}</nav>
           {progress ? <DeckProgress summary={progress} /> : (
             <p role="alert" className="notice-error mt-8">Could not load study progress. Please refresh and try again.</p>
           )}

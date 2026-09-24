@@ -35,7 +35,7 @@ async function ownedStudy(courseId: string, deckId: string, sessionId?: string) 
 
   if (sessionId) {
     const { data: session, error: sessionError } = await supabase
-      .from("study_sessions").select("id, completed_at, selected_card_ids, study_schedule_date_id")
+      .from("study_sessions").select("id, completed_at, selected_card_ids, study_schedule_date_id, study_schedule_id")
       .eq("id", sessionId).eq("deck_id", deckId).eq("user_id", userId)
       .eq("mode", "flashcards").maybeSingle();
     if (sessionError) console.error("Failed to verify study session:", sessionError);
@@ -77,13 +77,15 @@ export async function startStudy(courseId: string, deckId: string, formData?: Fo
       user_id: context.userId,
       deck_id: deckId,
       mode: "flashcards",
-      ...(filter === "all" ? {} : { selected_card_ids: selectedIds }),
+      selected_card_ids: selectedIds,
+      study_filter: filter,
     })
     .select("id").single();
   if (error) {
     console.error("Failed to start study session:", error);
     redirect(`${path}?error=start`);
   }
+  revalidatePath(deckPath(courseId, deckId));
   redirect(`${path}?session=${data.id}`);
 }
 
@@ -139,7 +141,10 @@ async function completeSession(
     const { data: date, error } = await context.supabase.from("study_schedule_dates")
       .select("study_schedule_id").eq("id", context.session.study_schedule_date_id).maybeSingle();
     if (error) console.error("Failed to refresh scheduled review:", error);
-    if (date) revalidatePath(`/study-schedules/${date.study_schedule_id}`);
+    if (date) {
+      revalidatePath(`/study-schedules/${date.study_schedule_id}`);
+      revalidatePath("/");
+    }
   }
   return state;
 }
