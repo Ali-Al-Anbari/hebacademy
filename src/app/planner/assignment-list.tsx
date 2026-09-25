@@ -1,26 +1,32 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Calendar,
   Check,
-  Clock,
-  Link as LinkIcon,
-  ListTodo,
   Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { displayTime, formatDateRange, isAssignmentOverdue } from "@/lib/planner/dates";
 import {
-  ASSIGNMENT_TYPE_LABELS,
-  BUILTIN_ASSIGNMENT_TYPES,
-  type AssignmentSubtask,
-  type AssignmentUrl,
-  type BuiltinAssignmentType,
-  type PlannerAssignment,
-  type PlannerCourse,
-  type PlannerCustomType,
-  type Semester,
+  displayTime,
+  formatDateRange,
+  formatShortDate,
+  getDatesInRange,
+  isAssignmentOverdue,
+  meetingOccurrences,
+  nextCalendarDay,
+  weekdayOf,
+  WEEKDAY_SHORT,
+} from "@/lib/planner/dates";
+import type {
+  AssignmentSubtask,
+  AssignmentUrl,
+  CourseMeeting,
+  MeetingException,
+  PlannerAssignment,
+  PlannerCourse,
+  PlannerCustomType,
+  Semester,
 } from "@/lib/planner/types";
 import { toggleAssignmentStatus } from "./assignment-actions";
 
@@ -29,133 +35,199 @@ type FilterStatus = "all" | "upcoming" | "completed" | "overdue" | "important";
 type Props = {
   semester: Semester;
   courses: PlannerCourse[];
+  meetings?: CourseMeeting[];
+  exceptions?: MeetingException[];
   customTypes: PlannerCustomType[];
   assignments: PlannerAssignment[];
-  urls: AssignmentUrl[];
-  subtasks: AssignmentSubtask[];
+  urls?: AssignmentUrl[];
+  subtasks?: AssignmentSubtask[];
   today: string;
   onOpenAssignment: (assignment: PlannerAssignment) => void;
-  onAddAssignment: () => void;
+  onAddAssignment: (initialDate?: string, initialCourseId?: string | null) => void;
   onStatusChanged: () => void;
 };
 
 export function AssignmentListView({
   semester,
   courses,
-  customTypes,
+  meetings = [],
+  exceptions = [],
   assignments,
-  urls,
-  subtasks,
   today,
   onOpenAssignment,
   onAddAssignment,
   onStatusChanged,
 }: Props) {
-  const [statusFilter, setStatusFilter] = useState<FilterStatus>("all");
   const [courseFilter, setCourseFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<FilterStatus>("all");
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
-  const courseMap = useMemo(() => new Map(courses.map((c) => [c.id, c])), [courses]);
-  const customTypeMap = useMemo(() => new Map(customTypes.map((t) => [t.id, t.name])), [customTypes]);
+  const todayRowRef = useRef<HTMLTableRowElement | null>(null);
 
-  const subtasksByAssignment = useMemo(() => {
-    const map = new Map<string, AssignmentSubtask[]>();
-    for (const sub of subtasks) {
-      const list = map.get(sub.assignment_id) ?? [];
-      list.push(sub);
-      map.set(sub.assignment_id, list);
+  // Compute set of course meeting dates in semester
+  const meetingCourseDates = useMemo(() => {
+    if (!meetings.length) return new Set<string>();
+    const occurrences = meetingOccurrences(
+      semester,
+      courses,
+      meetings,
+      exceptions,
+      semester.start_date,
+      nextCalendarDay(semester.end_date)
+    );
+    const set = new Set<string>();
+    for (const occ of occurrences) {
+      set.add(`${occ.courseId}:${occ.date}`);
+    }
+    return set;
+  }, [semester, courses, meetings, exceptions]);
+
+  // Index assignments by due_date and course_id
+  const assignmentsByDateAndCourse = useMemo(() => {
+    const map = new Map<string, PlannerAssignment[]>();
+    for (const assignment of assignments) {
+      const key = `${assignment.due_date}:${assignment.planner_course_id ?? "general"}`;
+      const list = map.get(key) ?? [];
+      list.push(assignment);
+      map.set(key, list);
     }
     return map;
-  }, [subtasks]);
+  }, [assignments]);
 
-  const urlsByAssignment = useMemo(() => {
-    const map = new Map<string, AssignmentUrl[]>();
-    for (const url of urls) {
-      const list = map.get(url.assignment_id) ?? [];
-      list.push(url);
-      map.set(url.assignment_id, list);
-    }
-    return map;
-  }, [urls]);
+  // All dates in the semester
+  const semesterDates = useMemo(() => {
+    return getDatesInRange(semester.start_date, semester.end_date);
+  }, [semester.start_date, semester.end_date]);
 
-  // Counts for filter tabs
-  const counts = useMemo(() => {
-    let upcoming = 0;
-    let completed = 0;
-    let overdue = 0;
-    let important = 0;
+  // Build spreadsheet date groups
+  const dateGroups = useMemo(() => {
+    const groups: {
+      date: string;
+      dayAbbrev: string;
+      shortDate: string;
+      isToday: boolean;
+      courseRows: {
+        id: string;
+        name: string;
+        color?: string;
+        meetsToday: boolean;
+        isGeneral: boolean;
+        assignments: PlannerAssignment[];
+      }[];
+    }[] = [];
 
-    for (const a of assignments) {
-      if (a.status === "done") {
-        completed++;
-      } else {
-        if (a.due_date < today) {
-          overdue++;
-        } else {
-          upcoming++;
+    const activeCourses =
+      courseFilter === "all"
+        ? courses
+        : courseFilter === "general"
+          ? []
+          : courses.filter((c) => c.id === courseFilter);
+
+    for (const date of semesterDates) {
+      const dayNum = weekdayOf(date);
+      const dayAbbrev = WEEKDAY_SHORT[dayNum - 1];
+      const shortDate = formatShortDate(date);
+      const isToday = date === today;
+
+      const courseRows: {
+        id: string;
+        name: string;
+        color?: string;
+        meetsToday: boolean;
+        isGeneral: boolean;
+        assignments: PlannerAssignment[];
+      }[] = [];
+
+      // Add regular course rows
+      for (const course of activeCourses) {
+        const meetsToday = meetingCourseDates.has(`${course.id}:${date}`);
+        const cellAssignments = (
+          assignmentsByDateAndCourse.get(`${date}:${course.id}`) ?? []
+        ).filter((a) => {
+          if (statusFilter === "all") return true;
+          if (statusFilter === "completed") return a.status === "done";
+          if (statusFilter === "upcoming") return a.status !== "done" && a.due_date >= today;
+          if (statusFilter === "overdue") return isAssignmentOverdue(a.due_date, a.status, today);
+          if (statusFilter === "important") return a.priority === "important";
+          return true;
+        });
+
+        // In spreadsheet view: if filtering by status, hide course rows that have no matching assignments
+        if (statusFilter !== "all" && cellAssignments.length === 0) {
+          continue;
         }
+
+        courseRows.push({
+          id: course.id,
+          name: course.name,
+          color: course.color,
+          meetsToday,
+          isGeneral: false,
+          assignments: cellAssignments,
+        });
       }
-      if (a.priority === "important") {
-        important++;
-      }
-    }
 
-    return { all: assignments.length, upcoming, completed, overdue, important };
-  }, [assignments, today]);
-
-  // Filtered and sorted assignments
-  const filteredAssignments = useMemo(() => {
-    return assignments
-      .filter((assignment) => {
-        // Status tab filter
-        if (statusFilter === "upcoming") {
-          if (assignment.status === "done" || assignment.due_date < today) return false;
-        } else if (statusFilter === "completed") {
-          if (assignment.status !== "done") return false;
-        } else if (statusFilter === "overdue") {
-          if (!isAssignmentOverdue(assignment.due_date, assignment.status, today)) return false;
-        } else if (statusFilter === "important") {
-          if (assignment.priority !== "important") return false;
-        }
-
-        // Course filter
-        if (courseFilter !== "all") {
-          if (courseFilter === "none") {
-            if (assignment.planner_course_id !== null) return false;
-          } else if (assignment.planner_course_id !== courseFilter) {
-            return false;
-          }
-        }
-
-        // Type filter
-        if (typeFilter !== "all") {
-          if (typeFilter.startsWith("custom:")) {
-            const customId = typeFilter.slice("custom:".length);
-            if (assignment.type_kind !== "custom" || assignment.custom_type_id !== customId) return false;
-          } else if (assignment.type_kind !== typeFilter) {
-            return false;
-          }
-        }
-
+      // Check if uncategorized (general) assignments exist on this date
+      const generalAssignments = (
+        assignmentsByDateAndCourse.get(`${date}:general`) ?? []
+      ).filter((a) => {
+        if (statusFilter === "all") return true;
+        if (statusFilter === "completed") return a.status === "done";
+        if (statusFilter === "upcoming") return a.status !== "done" && a.due_date >= today;
+        if (statusFilter === "overdue") return isAssignmentOverdue(a.due_date, a.status, today);
+        if (statusFilter === "important") return a.priority === "important";
         return true;
-      })
-      .sort((a, b) => {
-        // Default ordering specified in PRD & prompt:
-        // 1. due date ascending
-        // 2. due time where present
-        // 3. title
-        const dateCompare = a.due_date.localeCompare(b.due_date);
-        if (dateCompare !== 0) return dateCompare;
-
-        const aTime = a.due_time || "23:59:59";
-        const bTime = b.due_time || "23:59:59";
-        const timeCompare = aTime.localeCompare(bTime);
-        if (timeCompare !== 0) return timeCompare;
-
-        return a.title.localeCompare(b.title);
       });
-  }, [assignments, statusFilter, courseFilter, typeFilter, today]);
+
+      if (courseFilter === "all" || courseFilter === "general") {
+        if (generalAssignments.length > 0) {
+          courseRows.push({
+            id: "general",
+            name: "General",
+            meetsToday: false,
+            isGeneral: true,
+            assignments: generalAssignments,
+          });
+        }
+      }
+
+      // If status filtering is active, skip dates that have no matching rows at all
+      if (statusFilter !== "all" && courseRows.length === 0) {
+        continue;
+      }
+
+      // If no course exists at all in semester, show at least one row per date so table works
+      if (courseRows.length === 0 && courses.length === 0) {
+        courseRows.push({
+          id: "general",
+          name: "General",
+          meetsToday: false,
+          isGeneral: true,
+          assignments: generalAssignments,
+        });
+      }
+
+      if (courseRows.length > 0) {
+        groups.push({
+          date,
+          dayAbbrev,
+          shortDate,
+          isToday,
+          courseRows,
+        });
+      }
+    }
+
+    return groups;
+  }, [
+    semesterDates,
+    courses,
+    courseFilter,
+    statusFilter,
+    assignmentsByDateAndCourse,
+    meetingCourseDates,
+    today,
+  ]);
 
   async function handleToggleStatus(assignment: PlannerAssignment) {
     if (togglingId) return;
@@ -170,68 +242,38 @@ export function AssignmentListView({
     }
   }
 
-  function getTypeLabel(assignment: PlannerAssignment) {
-    if (assignment.type_kind === "custom" && assignment.custom_type_id) {
-      return customTypeMap.get(assignment.custom_type_id) ?? "Custom";
+  function scrollToToday() {
+    if (todayRowRef.current) {
+      todayRowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-    return ASSIGNMENT_TYPE_LABELS[assignment.type_kind as BuiltinAssignmentType] ?? assignment.type_kind;
   }
 
   return (
-    <div className="space-y-4" aria-label={`${semester.name} assignments list`}>
-      {/* Top Filter Bar */}
-      <div className="flex flex-col gap-3 rounded-xl border border-border/80 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        {/* Filter Pills */}
-        <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Assignment status filters">
-          {(
-            [
-              { key: "all", label: "All", count: counts.all },
-              { key: "upcoming", label: "Upcoming", count: counts.upcoming },
-              { key: "completed", label: "Completed", count: counts.completed },
-              { key: "overdue", label: "Overdue", count: counts.overdue },
-              { key: "important", label: "Important", count: counts.important },
-            ] as const
-          ).map((tab) => {
-            const isActive = statusFilter === tab.key;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => setStatusFilter(tab.key)}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
-                  isActive
-                    ? "bg-brand-ink text-white shadow-xs"
-                    : "bg-[#fff2f6] text-ink hover:bg-brand-100"
-                }`}
-              >
-                <span>{tab.label}</span>
-                <span
-                  className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold ${
-                    isActive
-                      ? "bg-white/20 text-white"
-                      : tab.key === "overdue" && tab.count > 0
-                        ? "bg-red-200 text-red-900"
-                        : "bg-black/5 text-muted-foreground"
-                  }`}
-                >
-                  {tab.count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Secondary Select Dropdowns */}
+    <div className="space-y-3" aria-label={`${semester.name} assignments list`}>
+      {/* Compact Top Filter & Action Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-lg border border-[#dabac4] bg-[#fff9fb] px-3.5 py-2 text-xs">
         <div className="flex flex-wrap items-center gap-2">
+          {/* Jump to Today Button */}
+          {semester.start_date <= today && today <= semester.end_date && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={scrollToToday}
+              className="h-7 text-xs font-semibold gap-1 px-2.5"
+            >
+              <Calendar className="size-3 text-brand-ink" />
+              Jump to Today
+            </Button>
+          )}
+
           {/* Course filter */}
-          <div className="flex items-center gap-1 text-xs">
-            <span className="text-muted-foreground hidden sm:inline">Class:</span>
+          <div className="flex items-center gap-1">
+            <span className="text-muted-foreground font-medium">Class:</span>
             <select
               value={courseFilter}
               onChange={(e) => setCourseFilter(e.target.value)}
-              className="h-8 rounded-md border border-input bg-white px-2 text-xs font-medium outline-none focus:border-brand-ink"
+              className="h-7 rounded border border-input bg-white px-2 text-xs font-medium outline-none focus:border-brand-ink"
               aria-label="Filter assignments by class"
             >
               <option value="all">All classes</option>
@@ -240,241 +282,252 @@ export function AssignmentListView({
                   {course.name}
                 </option>
               ))}
-              <option value="none">Independent (No class)</option>
+              <option value="general">General (No class)</option>
             </select>
           </div>
 
-          {/* Type filter */}
-          <div className="flex items-center gap-1 text-xs">
-            <span className="text-muted-foreground hidden sm:inline">Type:</span>
+          {/* Status filter */}
+          <div className="flex items-center gap-1">
+            <span className="text-muted-foreground font-medium">Status:</span>
             <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="h-8 rounded-md border border-input bg-white px-2 text-xs font-medium outline-none focus:border-brand-ink"
-              aria-label="Filter assignments by type"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as FilterStatus)}
+              className="h-7 rounded border border-input bg-white px-2 text-xs font-medium outline-none focus:border-brand-ink"
+              aria-label="Filter assignments by status"
             >
-              <option value="all">All types</option>
-              <optgroup label="Standard Types">
-                {BUILTIN_ASSIGNMENT_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {ASSIGNMENT_TYPE_LABELS[type as BuiltinAssignmentType]}
-                  </option>
-                ))}
-              </optgroup>
-              {customTypes.length > 0 && (
-                <optgroup label="Custom Types">
-                  {customTypes.map((ct) => (
-                    <option key={ct.id} value={`custom:${ct.id}`}>
-                      {ct.name}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
+              <option value="all">All</option>
+              <option value="upcoming">Upcoming</option>
+              <option value="overdue">Overdue</option>
+              <option value="completed">Completed</option>
+              <option value="important">Important</option>
             </select>
           </div>
-
-          {/* Quick Add Button */}
-          <Button
-            type="button"
-            size="sm"
-            onClick={onAddAssignment}
-            className="h-8 gap-1.5 text-xs font-semibold ml-auto sm:ml-2"
-          >
-            <Plus className="size-3.5" />
-            Add assignment
-          </Button>
         </div>
+
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => onAddAssignment()}
+          className="h-7 text-xs font-semibold gap-1 ml-auto"
+        >
+          <Plus className="size-3" />
+          Add assignment
+        </Button>
       </div>
 
-      {/* Assignment List Table / Rows */}
-      {filteredAssignments.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border bg-white/70 p-12 text-center">
-          <ListTodo className="mx-auto size-10 text-muted-foreground/60 mb-2" />
-          <h3 className="font-heading text-base font-semibold text-ink">No assignments found</h3>
-          <p className="mt-1 text-xs text-muted-foreground max-w-sm mx-auto">
-            {assignments.length === 0
-              ? "You haven't created any assignments for this semester yet."
-              : "No assignments match the selected filters."}
-          </p>
-          <div className="mt-4">
-            <Button type="button" size="sm" onClick={onAddAssignment} className="gap-1.5">
-              <Plus className="size-4" />
-              Add assignment
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-white shadow-xs">
-          <ul className="divide-y divide-border/60">
-            {filteredAssignments.map((assignment) => {
-              const course = assignment.planner_course_id
-                ? courseMap.get(assignment.planner_course_id)
-                : null;
-              const isOverdue = isAssignmentOverdue(assignment.due_date, assignment.status, today);
-              const isDone = assignment.status === "done";
-              const isImportant = assignment.priority === "important";
-              const taskSubtasks = subtasksByAssignment.get(assignment.id) ?? [];
-              const taskUrls = urlsByAssignment.get(assignment.id) ?? [];
-              const completedSubtasks = taskSubtasks.filter((s) => s.is_done).length;
+      {/* Authoritative Excel-Style Spreadsheet Table */}
+      <div className="planner-sheet-wrap overflow-x-auto rounded-lg border border-[#dabac4] bg-white shadow-xs">
+        <table className="planner-sheet-table w-full border-collapse text-left text-xs">
+          <thead>
+            <tr className="border-b border-[#dabac4] bg-[#fbf0f4] text-[#2A2024] font-semibold sticky top-0 z-10">
+              <th className="py-2 px-3 border-r border-[#ebd5dd] w-14 uppercase tracking-wider text-[11px]">
+                Day
+              </th>
+              <th className="py-2 px-3 border-r border-[#ebd5dd] w-24 uppercase tracking-wider text-[11px]">
+                Date
+              </th>
+              <th className="py-2 px-3 border-r border-[#ebd5dd] w-48 uppercase tracking-wider text-[11px]">
+                Course
+              </th>
+              <th className="py-2 px-3 border-r border-[#ebd5dd] w-52 uppercase tracking-wider text-[11px]">
+                Topics
+              </th>
+              <th className="py-2 px-3 uppercase tracking-wider text-[11px]">
+                Assignments
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {dateGroups.map((group, groupIdx) => {
+              const rowCount = group.courseRows.length;
+              const isEvenGroup = groupIdx % 2 === 0;
+              const groupBg = isEvenGroup ? "bg-white" : "bg-[#fff9fb]";
+              const todayBg = group.isToday ? "bg-[#ffeef3]" : "";
 
-              return (
-                <li
-                  key={assignment.id}
-                  className={`group flex flex-col gap-3 p-3.5 transition-colors sm:flex-row sm:items-center sm:justify-between ${
-                    isDone
-                      ? "bg-[#faf6f7]/80 hover:bg-[#f8f0f3]"
-                      : isOverdue
-                        ? "bg-[#fff7f8] hover:bg-[#ffeff2]"
-                        : "hover:bg-[#fff9fb]"
-                  }`}
-                >
-                  {/* Left: Checkbox, Important, Title & Badges */}
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    <button
-                      type="button"
-                      disabled={togglingId === assignment.id}
-                      onClick={() => void handleToggleStatus(assignment)}
-                      className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded border-2 transition-all ${
-                        isDone
-                          ? "border-brand-ink bg-brand-ink text-white"
-                          : "border-border hover:border-brand-ink bg-white"
-                      }`}
-                      aria-label={
-                        isDone
-                          ? `Mark "${assignment.title}" as not started`
-                          : `Mark "${assignment.title}" as done`
-                      }
-                    >
-                      {isDone && <Check className="size-3.5 stroke-[3]" />}
-                    </button>
+              return group.courseRows.map((courseRow, rowIdx) => {
+                const isFirstRowInGroup = rowIdx === 0;
+                const isLastRowInGroup = rowIdx === rowCount - 1;
+                const rowBorder = isLastRowInGroup
+                  ? "border-b-2 border-[#d2aab7]"
+                  : "border-b border-[#ebdbe2]";
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {isImportant && (
-                          <span
-                            className="inline-flex size-4.5 shrink-0 items-center justify-center rounded-full bg-red-600 font-bold text-[11px] text-white"
-                            title="Important"
-                            aria-label="Important"
-                          >
-                            !
-                          </span>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => onOpenAssignment(assignment)}
-                          className={`text-left font-heading text-sm font-semibold text-ink hover:text-brand-ink hover:underline decoration-brand-ink/50 text-wrap break-words ${
-                            isDone ? "line-through text-muted-foreground" : ""
-                          }`}
-                        >
-                          {assignment.title}
-                        </button>
-                      </div>
-
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                        {/* Course Badge */}
-                        {course ? (
-                          <span
-                            className="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-medium"
-                            style={{
-                              backgroundColor: `${course.color}18`,
-                              color: "#2A2024",
-                            }}
-                          >
-                            <span
-                              className="size-2 rounded-full"
-                              style={{ backgroundColor: course.color }}
-                              aria-hidden="true"
-                            />
-                            {course.name}
-                          </span>
-                        ) : (
-                          <span className="rounded-md bg-muted/60 px-2 py-0.5 font-medium text-muted-foreground">
-                            Independent
-                          </span>
-                        )}
-
-                        {/* Type Badge */}
-                        <span className="rounded-md border border-border/60 bg-white px-2 py-0.5 text-muted-foreground">
-                          {getTypeLabel(assignment)}
-                        </span>
-
-                        {/* Status Badge */}
-                        {assignment.status === "in_progress" && (
-                          <span className="rounded-md bg-amber-100 px-2 py-0.5 font-medium text-amber-900">
-                            In Progress
-                          </span>
-                        )}
-                        {isDone && (
-                          <span className="rounded-md bg-emerald-100 px-2 py-0.5 font-medium text-emerald-900">
-                            Done
-                          </span>
-                        )}
-                        {isOverdue && (
-                          <span className="rounded-md bg-red-100 px-2 py-0.5 font-bold text-red-800">
-                            Overdue
-                          </span>
-                        )}
-
-                        {/* Subtasks Count */}
-                        {taskSubtasks.length > 0 && (
-                          <span className="inline-flex items-center gap-1 text-muted-foreground">
-                            <ListTodo className="size-3" />
-                            {completedSubtasks}/{taskSubtasks.length}
-                          </span>
-                        )}
-
-                        {/* URLs Count */}
-                        {taskUrls.length > 0 && (
-                          <span className="inline-flex items-center gap-1 text-muted-foreground">
-                            <LinkIcon className="size-3" />
-                            {taskUrls.length} {taskUrls.length === 1 ? "link" : "links"}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Right: Date, Time & Edit action */}
-                  <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 text-xs pl-8 sm:pl-0">
-                    <div className="text-right">
-                      <div
-                        className={`flex items-center gap-1 font-semibold ${
-                          isOverdue && !isDone
-                            ? "text-red-700"
-                            : isDone
-                              ? "text-muted-foreground"
-                              : "text-ink"
+                return (
+                  <tr
+                    key={`${group.date}:${courseRow.id}`}
+                    ref={group.isToday && isFirstRowInGroup ? todayRowRef : undefined}
+                    className={`${group.isToday ? todayBg : groupBg} ${rowBorder} hover:bg-[#fff2f6]/70 transition-colors`}
+                  >
+                    {/* Day Cell (Rowspan) */}
+                    {isFirstRowInGroup && (
+                      <td
+                        rowSpan={rowCount}
+                        className={`py-2 px-3 align-top border-r border-[#ebd5dd] font-semibold text-[#2A2024] ${
+                          group.isToday ? "bg-[#ffeef3] text-brand-ink" : ""
                         }`}
                       >
-                        <Calendar className="size-3.5" />
-                        <span>{formatDateRange(assignment.start_date, assignment.due_date)}</span>
-                      </div>
+                        {group.dayAbbrev}
+                      </td>
+                    )}
 
-                      {assignment.due_time && (
-                        <div className="flex items-center justify-end gap-1 text-muted-foreground mt-0.5">
-                          <Clock className="size-3" />
-                          <span>{displayTime(assignment.due_time)}</span>
+                    {/* Date Cell (Rowspan) */}
+                    {isFirstRowInGroup && (
+                      <td
+                        rowSpan={rowCount}
+                        className={`py-2 px-3 align-top border-r border-[#ebd5dd] text-[#2A2024] whitespace-nowrap ${
+                          group.isToday ? "bg-[#ffeef3] font-semibold text-brand-ink" : "font-medium"
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>{group.shortDate}</span>
+                          {group.isToday && (
+                            <span className="rounded bg-brand-ink px-1 py-0.2 text-[9px] font-bold text-white uppercase tracking-tight">
+                              Today
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    )}
+
+                    {/* Course Cell */}
+                    <td className="py-2 px-3 align-top border-r border-[#ebd5dd]">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {courseRow.color ? (
+                          <span
+                            className={`size-2 rounded-full shrink-0 ${
+                              courseRow.meetsToday ? "opacity-100" : "opacity-35"
+                            }`}
+                            style={{ backgroundColor: courseRow.color }}
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <span className="size-2 rounded-full shrink-0 bg-muted-foreground/40" />
+                        )}
+                        <span
+                          className={`truncate ${
+                            courseRow.meetsToday
+                              ? "font-semibold text-ink"
+                              : "font-normal text-muted-foreground/75"
+                          } ${courseRow.isGeneral ? "italic text-muted-foreground" : ""}`}
+                          title={
+                            courseRow.meetsToday
+                              ? `${courseRow.name} (Meets today)`
+                              : courseRow.name
+                          }
+                        >
+                          {courseRow.name}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Topics Column (Preserved hook for future course notes/topics) */}
+                    <td className="py-2 px-3 align-top border-r border-[#ebd5dd] text-muted-foreground/60 min-w-44">
+                      {/* Blank hook for future topics */}
+                    </td>
+
+                    {/* Assignments Column */}
+                    <td
+                      className="py-1.5 px-3 align-top group/cell cursor-pointer"
+                      onClick={(e) => {
+                        const target = e.target as HTMLElement;
+                        if (target.closest("button") || target.closest("a")) return;
+                        onAddAssignment(group.date, courseRow.isGeneral ? null : courseRow.id);
+                      }}
+                      title="Click to add assignment"
+                    >
+                      {courseRow.assignments.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {courseRow.assignments.map((assignment) => {
+                            const isDone = assignment.status === "done";
+                            const isImportant = assignment.priority === "important";
+                            const isMultiDay = Boolean(
+                              assignment.start_date && assignment.start_date !== assignment.due_date
+                            );
+
+                            return (
+                              <div
+                                key={assignment.id}
+                                className="flex items-center gap-1.5 group/item"
+                              >
+                                {/* Checkbox */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    void handleToggleStatus(assignment);
+                                  }}
+                                  disabled={togglingId === assignment.id}
+                                  className={`flex size-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
+                                    isDone
+                                      ? "border-brand-ink bg-brand-ink text-white"
+                                      : "border-input bg-white hover:border-brand-ink"
+                                  }`}
+                                  aria-label={
+                                    isDone
+                                      ? `Mark "${assignment.title}" as not started`
+                                      : `Mark "${assignment.title}" as done`
+                                  }
+                                >
+                                  {isDone && <Check className="size-2.5 stroke-[3]" />}
+                                </button>
+
+                                {/* Important ! indicator */}
+                                {isImportant && (
+                                  <span
+                                    className="font-bold text-red-600 shrink-0 text-xs select-none"
+                                    title="Important"
+                                    aria-label="Important"
+                                  >
+                                    !
+                                  </span>
+                                )}
+
+                                {/* Assignment Title */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenAssignment(assignment);
+                                  }}
+                                  className={`text-left font-medium text-ink hover:text-brand-ink hover:underline truncate max-w-sm sm:max-w-md ${
+                                    isDone ? "line-through text-muted-foreground opacity-65" : ""
+                                  }`}
+                                >
+                                  {assignment.title}
+                                </button>
+
+                                {/* Multi-day range note */}
+                                {isMultiDay && (
+                                  <span className="text-[10px] text-muted-foreground shrink-0 font-normal">
+                                    ({formatDateRange(assignment.start_date, assignment.due_date)})
+                                  </span>
+                                )}
+
+                                {/* Optional due time */}
+                                {assignment.due_time && !isMultiDay && (
+                                  <span className="text-[10px] text-muted-foreground shrink-0 font-normal">
+                                    {displayTime(assignment.due_time)}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="flex items-center min-h-[1.5rem]">
+                          <span className="opacity-0 group-hover/cell:opacity-100 text-[11px] text-muted-foreground hover:text-brand-ink flex items-center gap-1 font-medium transition-opacity">
+                            <Plus className="size-3" />
+                            Add assignment
+                          </span>
                         </div>
                       )}
-                    </div>
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onOpenAssignment(assignment)}
-                      className="text-xs text-brand-ink hover:underline font-semibold"
-                    >
-                      Edit
-                    </Button>
-                  </div>
-                </li>
-              );
+                    </td>
+                  </tr>
+                );
+              });
             })}
-          </ul>
-        </div>
-      )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -60,6 +60,7 @@ type Props = {
   customTypes: PlannerCustomType[];
   assignment: PlannerAssignment | null;
   initialDate?: string | null;
+  initialCourseId?: string | null;
   urls?: AssignmentUrl[];
   subtasks?: AssignmentSubtask[];
   onSaved: (savedId?: string) => void;
@@ -74,6 +75,7 @@ function AssignmentDrawerForm({
   customTypes,
   assignment,
   initialDate,
+  initialCourseId,
   urls = [],
   subtasks = [],
   onSaved,
@@ -94,7 +96,7 @@ function AssignmentDrawerForm({
   // Form fields
   const [title, setTitle] = useState(assignment?.title ?? "");
   const [courseId, setCourseId] = useState<string>(
-    assignment?.planner_course_id ?? (courses[0]?.id ?? "")
+    assignment?.planner_course_id ?? (initialCourseId !== undefined ? (initialCourseId ?? "") : (courses[0]?.id ?? ""))
   );
   const [startDate, setStartDate] = useState(assignment?.start_date ?? "");
   const [dueDate, setDueDate] = useState(initialDue);
@@ -900,13 +902,18 @@ export function AssignmentDrawer(props: Props) {
         >
           {props.isOpen && (
             <AssignmentDrawerForm
-              key={props.assignment ? props.assignment.id : `new:${props.initialDate ?? "default"}`}
+              key={
+                props.assignment
+                  ? props.assignment.id
+                  : `new:${props.initialDate ?? "default"}:${props.initialCourseId ?? "default"}`
+              }
               onClose={props.onClose}
               semester={props.semester}
               courses={props.courses}
               customTypes={props.customTypes}
               assignment={props.assignment}
               initialDate={props.initialDate}
+              initialCourseId={props.initialCourseId}
               urls={props.urls}
               subtasks={props.subtasks}
               onSaved={props.onSaved}

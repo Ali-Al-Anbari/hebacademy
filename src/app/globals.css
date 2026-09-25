@@ -145,27 +145,93 @@ button:disabled:hover { transform: none; }
 .planner-calendar .fc-theme-classic td { border-color: #e8d0d8; }
 .planner-calendar .fc-daygrid-day-number { color: var(--color-ink); font-weight: 600; padding: 3px 6px; }
 .planner-calendar .fc-col-header-cell-cushion { color: var(--color-ink); text-decoration: none; }
-.planner-calendar .fc-event { cursor: pointer; border-radius: .3rem; padding: 1px 3px; border-width: 1px; }
-.planner-calendar .fc-event:focus-visible { outline: 2px solid var(--color-brand-ink); outline-offset: 2px; }
-.planner-event-content { display: flex; min-width: 0; flex-direction: column; line-height: 1.2; }
-.planner-event-content strong, .planner-event-content span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.planner-event-content strong { font-weight: 700; }
-.planner-event-marker { display: inline-block; width: 5px; height: .75rem; margin-right: .3rem; border-radius: 2px; vertical-align: -.08rem; }
-.planner-event-content span { font-size: .74rem; }
+/* Clean Calendar Events */
+.planner-calendar .fc-event {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 1px 3px;
+  border: 1px solid #ebdbe2;
+  background: #fff;
+  color: var(--color-ink);
+}
+.planner-calendar .fc-event:focus-visible {
+  outline: 2px solid var(--color-brand-ink);
+  outline-offset: 2px;
+}
+.planner-calendar .fc-event-time {
+  display: none !important;
+}
+.planner-calendar .fc-daygrid-more-link {
+  font-size: .72rem;
+  font-weight: 700;
+  color: var(--color-brand-ink);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.planner-calendar .fc-daygrid-more-link:hover {
+  background-color: var(--color-brand-50);
+}
 
-/* Distinct Assignment Pills */
-.planner-assignment-pill { display: inline-flex; align-items: center; gap: 4px; width: 100%; min-width: 0; padding: 2px 4px; border-radius: 4px; font-size: .78rem; line-height: 1.25; }
-.planner-assignment-pill--done { opacity: 0.62; }
-.planner-assignment-pill--done .planner-assignment-title { text-decoration: line-through; }
-.planner-assignment-dot { display: inline-block; width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; }
-.planner-assignment-bang { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; flex-shrink: 0; border-radius: 50%; background: #dc2626; color: #fff; font-size: 9px; font-weight: 800; line-height: 1; }
-.planner-assignment-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-.planner-assignment-time { flex-shrink: 0; font-size: .7rem; opacity: .82; }
+.planner-cal-meeting,
+.planner-cal-assignment {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  padding: 1px 4px;
+  font-size: .78rem;
+  line-height: 1.25;
+  border-radius: 3px;
+}
+.planner-cal-assignment--done {
+  opacity: 0.6;
+}
+.planner-cal-assignment--done .planner-cal-title {
+  text-decoration: line-through;
+}
+.planner-cal-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  color: var(--color-ink);
+}
+.planner-cal-important {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #dc2626;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
 
-.planner-day-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: .2rem; }
-.planner-presence { display: inline-flex; min-width: 0; align-items: center; gap: 2px; }
-.planner-presence-dot { display: inline-block; width: 5px; height: 5px; flex: none; border-radius: 50%; }
-.planner-presence-more { color: var(--hc-muted); font-size: .55rem; }
+/* Spreadsheet List Table */
+.planner-sheet-wrap {
+  min-width: 0;
+  border: 1px solid #dabac4;
+  background: #ffffff;
+  box-shadow: 0 1px 10px #23182005;
+}
+.planner-sheet-table th {
+  background-color: #fbf0f4;
+  color: var(--color-ink);
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+}
+.planner-sheet-table td {
+  color: var(--color-ink);
+}
+
 @media (min-width: 1024px) { .planner-workspace-grid { grid-template-columns: minmax(14rem, 17.5rem) minmax(0, 1fr); gap: 2rem; } }
 @media (max-width: 640px) {
   .planner-semester-bar > div:last-child { width: 100%; }

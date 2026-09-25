@@ -13,6 +13,8 @@ export function weekdayOf(date: string): number {
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay() || 7;
 }
 
+export const WEEKDAY_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
 function ordinal(date: string) {
   const [year, month, day] = date.split("-").map(Number);
   return Date.UTC(year, month - 1, day);
@@ -22,6 +24,18 @@ function dateFromOrdinal(value: number) {
   const date = new Date(value);
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
 }
+
+export function getDatesInRange(start: string, end: string): string[] {
+  const dates: string[] = [];
+  const startOrd = ordinal(start);
+  const endOrd = ordinal(end);
+  for (let d = startOrd; d <= endOrd; d += 86_400_000) {
+    dates.push(dateFromOrdinal(d));
+  }
+  return dates;
+}
+
+
 
 export function localDate() {
   const now = new Date();

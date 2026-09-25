@@ -51,6 +51,7 @@ export function PlannerWorkspace({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState<PlannerAssignment | null>(null);
   const [drawerInitialDate, setDrawerInitialDate] = useState<string | null>(null);
+  const [drawerInitialCourseId, setDrawerInitialCourseId] = useState<string | null>(null);
   const [createdCustomTypes, setCreatedCustomTypes] = useState<PlannerCustomType[]>([]);
 
   const allCustomTypes = useMemo(() => {
@@ -83,15 +84,17 @@ export function PlannerWorkspace({
     router.refresh();
   }
 
-  function handleOpenNewAssignment(initialDate?: string) {
+  function handleOpenNewAssignment(initialDate?: string, initialCourseId?: string | null) {
     setEditingAssignment(null);
     setDrawerInitialDate(initialDate ?? null);
+    setDrawerInitialCourseId(initialCourseId ?? null);
     setDrawerOpen(true);
   }
 
   function handleOpenEditAssignment(assignment: PlannerAssignment) {
     setEditingAssignment(assignment);
     setDrawerInitialDate(null);
+    setDrawerInitialCourseId(null);
     setDrawerOpen(true);
   }
 
@@ -221,6 +224,7 @@ export function PlannerWorkspace({
             customTypes={allCustomTypes}
             assignment={editingAssignment}
             initialDate={drawerInitialDate}
+            initialCourseId={drawerInitialCourseId}
             urls={selectedUrls}
             subtasks={selectedSubtasks}
             onSaved={() => saved(selected.id)}

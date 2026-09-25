@@ -59,10 +59,10 @@ export function PlannerCalendar({
   customTypes: PlannerCustomType[];
   urls: AssignmentUrl[];
   subtasks: AssignmentSubtask[];
-  today: string | null;
+  today?: string;
   onEditRecurring: (courseId: string) => void;
   onOpenAssignment: (assignment: PlannerAssignment) => void;
-  onAddAssignment: (initialDate?: string) => void;
+  onAddAssignment: (initialDate?: string, initialCourseId?: string | null) => void;
   onSaved: () => void;
 }) {
   const calendar = useRef<CalendarRef>(null);
@@ -316,7 +316,8 @@ export function PlannerCalendar({
             headerToolbar={false}
             firstDay={1}
             height="auto"
-            dayMaxEvents={4}
+            dayMaxEvents={3}
+            displayEventTime={false}
             nowIndicator
             weekends
             allDaySlot={true}
@@ -341,10 +342,10 @@ export function PlannerCalendar({
                 title: item.courseName,
                 start: `${item.date}T${item.startTime}`,
                 end: `${item.date}T${item.endTime}`,
-                backgroundColor: "#fff8fa",
+                backgroundColor: "#fff9fb",
                 borderColor: item.color,
                 textColor: "#2A2024",
-                extendedProps: { type: "meeting", occurrence: item },
+                extendedProps: { type: "meeting", occurrence: item, color: item.color },
               }));
 
               // 2. Assignments
@@ -374,14 +375,13 @@ export function PlannerCalendar({
                     start,
                     end,
                     allDay: true,
-                    backgroundColor: isDone ? "#f5edf0" : "#ffffff",
+                    backgroundColor: isDone ? "#f7f0f3" : "#ffffff",
                     borderColor: color,
                     textColor: isDone ? "#70545e" : "#2A2024",
                     extendedProps: {
                       type: "assignment",
                       assignment,
                       color,
-                      courseName: course?.name ?? null,
                     },
                   };
                 });
@@ -392,84 +392,35 @@ export function PlannerCalendar({
             dateClick={handleDateClick}
             eventContent={(info) => {
               const type = info.event.extendedProps.type;
+              const color = (info.event.extendedProps.color as string) || "#FB6F92";
+
               if (type === "assignment") {
                 const assignment = info.event.extendedProps.assignment as PlannerAssignment;
                 const isDone = assignment.status === "done";
                 const isImportant = assignment.priority === "important";
-                const color = info.event.extendedProps.color as string;
-                const isMultiDay = Boolean(
-                  assignment.start_date && assignment.start_date !== assignment.due_date
-                );
 
                 return (
-                  <span className={`planner-assignment-pill ${isDone ? "planner-assignment-pill--done" : ""}`}>
-                    <span
-                      className="planner-assignment-dot"
-                      style={{ backgroundColor: color }}
-                      aria-hidden="true"
-                    />
+                  <span
+                    className={`planner-cal-assignment ${isDone ? "planner-cal-assignment--done" : ""}`}
+                    style={{ borderLeft: `3px solid ${color}` }}
+                  >
                     {isImportant && (
-                      <span className="planner-assignment-bang" title="Important" aria-label="Important">
+                      <span className="planner-cal-important" title="Important" aria-label="Important">
                         !
                       </span>
                     )}
-                    <span className="planner-assignment-title">
-                      {info.event.title}
-                    </span>
-                    {assignment.due_time && !isMultiDay && (
-                      <span className="planner-assignment-time">
-                        {displayTime(assignment.due_time)}
-                      </span>
-                    )}
+                    <span className="planner-cal-title truncate">{info.event.title}</span>
                   </span>
                 );
               }
 
-              // Class meeting
-              const occurrence = info.event.extendedProps.occurrence as MeetingOccurrence;
+              // Class meeting: Course name only, single restrained left border, no time text
               return (
-                <span className="planner-event-content">
-                  <strong>
-                    <i
-                      className="planner-event-marker"
-                      style={{ backgroundColor: occurrence.color }}
-                      aria-hidden="true"
-                    />
-                    {info.event.title}
-                  </strong>
-                  <span>
-                    {info.timeText}
-                    {occurrence?.location ? ` · ${occurrence.location}` : ""}
-                  </span>
-                </span>
-              );
-            }}
-            dayCellTopContent={(info) => {
-              const day =
-                calendar.current?.getApi().formatIso(info.date, true) ??
-                info.date.toISOString().slice(0, 10);
-              if (view !== "dayGridMonth" || day < semester.start_date || day > semester.end_date) {
-                return info.dayNumberText;
-              }
-              return (
-                <span className="planner-day-heading">
-                  <span>{info.dayNumberText}</span>
-                  <span
-                    className="planner-presence"
-                    title={`Classes: ${courses.map((c) => c.name).join(", ")}`}
-                    aria-label={`${courses.length} classes available`}
-                  >
-                    {courses.slice(0, 4).map((c) => (
-                      <span
-                        key={c.id}
-                        className="planner-presence-dot"
-                        style={{ backgroundColor: c.color, opacity: 0.28 }}
-                      />
-                    ))}
-                    {courses.length > 4 && (
-                      <span className="planner-presence-more">+{courses.length - 4}</span>
-                    )}
-                  </span>
+                <span
+                  className="planner-cal-meeting"
+                  style={{ borderLeft: `3px solid ${color}` }}
+                >
+                  <span className="planner-cal-title truncate">{info.event.title}</span>
                 </span>
               );
             }}
@@ -480,18 +431,20 @@ export function PlannerCalendar({
         </p>
       </div>
 
-      {/* List view */}
+      {/* Authoritative Excel-Style List view */}
       {view === "list" && (
         <AssignmentListView
           semester={semester}
           courses={courses}
+          meetings={meetings}
+          exceptions={exceptions}
           customTypes={customTypes}
           assignments={assignments}
           urls={urls}
           subtasks={subtasks}
           today={today ?? semester.start_date}
           onOpenAssignment={onOpenAssignment}
-          onAddAssignment={() => onAddAssignment()}
+          onAddAssignment={onAddAssignment}
           onStatusChanged={onSaved}
         />
       )}
