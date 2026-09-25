@@ -5,6 +5,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { getCompletedScheduleDateIds } from "@/lib/schedule-data";
 import { CourseManager } from "./course-manager";
 import { ScheduleDashboardCard } from "./schedule-dashboard-card";
+import { DashboardPlannerCard } from "./dashboard-planner-card";
 
 function firstRelation<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
@@ -44,22 +45,29 @@ export default async function DashboardPage() {
 
   return (
     <main className="page-container">
-      {coursesError ? (
-        <>
-          <div className="page-intro">
-            <p className="page-eyebrow">Your workspace</p>
-            <h1 className="page-title">Your Courses</h1>
-            <p className="page-description">Pick up where you left off and explore your study decks.</p>
-          </div>
-          <p role="alert" className="notice-error mt-5">Could not load your courses. Please refresh and try again.</p>
-        </>
-      ) : (
-        <CourseManager courses={(courses ?? []).map((course) => ({
-          id: course.id,
-          name: course.name,
-          deckCount: course.decks[0]?.count ?? 0,
-        }))} />
-      )}
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px] items-start">
+        <div className="min-w-0">
+          {coursesError ? (
+            <>
+              <div className="page-intro">
+                <p className="page-eyebrow">Your workspace</p>
+                <h1 className="page-title">Your Courses</h1>
+                <p className="page-description">Pick up where you left off and explore your study decks.</p>
+              </div>
+              <p role="alert" className="notice-error mt-5">Could not load your courses. Please refresh and try again.</p>
+            </>
+          ) : (
+            <CourseManager courses={(courses ?? []).map((course) => ({
+              id: course.id,
+              name: course.name,
+              deckCount: course.decks[0]?.count ?? 0,
+            }))} />
+          )}
+        </div>
+        <aside className="w-full">
+          <DashboardPlannerCard />
+        </aside>
+      </div>
       <section className="dashboard-schedules mt-9" aria-labelledby="study-schedules-title">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div><h2 id="study-schedules-title" className="section-title">Study schedules</h2><p className="page-description mt-1">Choose cards and review dates for an exam or study period.</p></div>

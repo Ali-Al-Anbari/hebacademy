@@ -69,15 +69,28 @@ export function PlannerWorkspace({
   const router = useRouter();
   const today = useLocalToday();
   const [archived, setArchived] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const targetFromUrl = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    const assignId = params.get("assignment");
+    if (!assignId) return null;
+    return assignments.find((a) => a.id === assignId) ?? null;
+  }, [assignments]);
+
+  const [selectedId, setSelectedId] = useState<string | null>(
+    () => targetFromUrl?.semester_id ?? null
+  );
   const [scheduleCourseId, setScheduleCourseId] = useState<string | null>(null);
 
   // Classes Drawer state
   const [classesOpen, setClassesOpen] = useState(false);
 
-  // Assignment drawer state
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [editingAssignment, setEditingAssignment] = useState<PlannerAssignment | null>(null);
+  // Assignment Drawer state
+  const [drawerOpen, setDrawerOpen] = useState(() => Boolean(targetFromUrl));
+  const [editingAssignment, setEditingAssignment] = useState<PlannerAssignment | null>(
+    () => targetFromUrl
+  );
   const [drawerInitialDate, setDrawerInitialDate] = useState<string | null>(null);
   const [drawerInitialCourseId, setDrawerInitialCourseId] = useState<string | null>(null);
   const [createdCustomTypes, setCreatedCustomTypes] = useState<PlannerCustomType[]>([]);

@@ -357,6 +357,7 @@ export async function saveAssignment(
   }
 
   revalidatePath("/planner");
+  revalidatePath("/");
   return { error: null, id: targetId };
 }
 
@@ -378,6 +379,7 @@ export async function deleteAssignment(id: string): Promise<{ error: string | nu
   }
 
   revalidatePath("/planner");
+  revalidatePath("/");
   return { error: null };
 }
 
@@ -406,6 +408,7 @@ export async function toggleAssignmentStatus(
   }
 
   revalidatePath("/planner");
+  revalidatePath("/");
   return { error: null, status: data.status as AssignmentStatus };
 }
 
@@ -436,5 +439,6 @@ export async function toggleSubtask(
   }
 
   revalidatePath("/planner");
+  revalidatePath("/");
   return { error: null, is_done: data.is_done };
 }
