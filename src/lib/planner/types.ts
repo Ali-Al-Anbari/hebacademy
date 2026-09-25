@@ -147,3 +147,27 @@ export type AssignmentDraft = {
   urls: AssignmentUrlDraft[];
   subtasks: AssignmentSubtaskDraft[];
 };
+
+export type PlannerCourseNote = {
+  id: string;
+  semester_id: string;
+  planner_course_id: string;
+  note_date: string;
+  body: string;
+  is_done: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PlannerWeeklyFocusItem = {
+  id: string;
+  semester_id: string;
+  week_start: string;
+  position: number;
+  title: string | null;
+  is_done: boolean;
+  assignment_id: string | null;
+  occurrence_date: string | null;
+  created_at: string;
+  updated_at: string;
+};

@@ -35,6 +35,24 @@ export function getDatesInRange(start: string, end: string): string[] {
   return dates;
 }
 
+export function addDays(date: string, days: number): string {
+  return dateFromOrdinal(ordinal(date) + days * 86_400_000);
+}
+
+export function getMondayOfWeek(date: string): string {
+  const w = weekdayOf(date);
+  return addDays(date, -(w - 1));
+}
+
+export function getWeekSunday(monday: string): string {
+  return addDays(monday, 6);
+}
+
+export function formatWeekRange(monday: string): string {
+  const sunday = addDays(monday, 6);
+  return formatDateRange(monday, sunday);
+}
+
 
 
 export function localDate() {

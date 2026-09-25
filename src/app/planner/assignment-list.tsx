@@ -1,10 +1,14 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Calendar,
   Check,
+  Edit2,
+  Pin,
   Plus,
+  Trash2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,10 +29,18 @@ import type {
   MeetingException,
   PlannerAssignment,
   PlannerCourse,
+  PlannerCourseNote,
   PlannerCustomType,
+  PlannerWeeklyFocusItem,
   Semester,
 } from "@/lib/planner/types";
 import { toggleAssignmentStatus } from "./assignment-actions";
+import {
+  createCourseNote,
+  deleteCourseNote,
+  toggleCourseNote,
+  updateCourseNote,
+} from "./focus-and-notes-actions";
 
 type FilterStatus = "all" | "upcoming" | "completed" | "overdue" | "important";
 
@@ -39,11 +51,15 @@ type Props = {
   exceptions?: MeetingException[];
   customTypes: PlannerCustomType[];
   assignments: PlannerAssignment[];
+  courseNotes?: PlannerCourseNote[];
+  weeklyFocusItems?: PlannerWeeklyFocusItem[];
+  activeWeekStart?: string;
   urls?: AssignmentUrl[];
   subtasks?: AssignmentSubtask[];
   today: string;
   onOpenAssignment: (assignment: PlannerAssignment) => void;
   onAddAssignment: (initialDate?: string, initialCourseId?: string | null) => void;
+  onTogglePinAssignment?: (assignmentId: string) => void;
   onStatusChanged: () => void;
 };
 
@@ -53,14 +69,26 @@ export function AssignmentListView({
   meetings = [],
   exceptions = [],
   assignments,
+  courseNotes = [],
+  weeklyFocusItems = [],
+  activeWeekStart,
   today,
   onOpenAssignment,
   onAddAssignment,
+  onTogglePinAssignment,
   onStatusChanged,
 }: Props) {
   const [courseFilter, setCourseFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<FilterStatus>("all");
   const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  // Topics / Course Notes state
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState<string>("");
+  const [addingNoteFor, setAddingNoteFor] = useState<{ date: string; courseId: string } | null>(null);
+  const [addingNoteText, setAddingNoteText] = useState<string>("");
+  const [togglingNoteId, setTogglingNoteId] = useState<string | null>(null);
+  const [savingNote, setSavingNote] = useState<boolean>(false);
 
   const todayRowRef = useRef<HTMLTableRowElement | null>(null);
 
@@ -93,6 +121,18 @@ export function AssignmentListView({
     }
     return map;
   }, [assignments]);
+
+  // Index course notes by `${note_date}:${planner_course_id}`
+  const notesByDateAndCourse = useMemo(() => {
+    const map = new Map<string, PlannerCourseNote[]>();
+    for (const note of courseNotes) {
+      const key = `${note.note_date}:${note.planner_course_id}`;
+      const list = map.get(key) ?? [];
+      list.push(note);
+      map.set(key, list);
+    }
+    return map;
+  }, [courseNotes]);
 
   // All dates in the semester
   const semesterDates = useMemo(() => {
@@ -239,6 +279,88 @@ export function AssignmentListView({
       console.error("Failed to toggle status:", err);
     } finally {
       setTogglingId(null);
+    }
+  }
+
+  async function handleToggleNote(note: PlannerCourseNote) {
+    if (togglingNoteId) return;
+    setTogglingNoteId(note.id);
+    try {
+      await toggleCourseNote(note.id, note.is_done);
+      onStatusChanged();
+    } catch (err) {
+      console.error("Failed to toggle note:", err);
+    } finally {
+      setTogglingNoteId(null);
+    }
+  }
+
+  async function handleSaveNewNote(e: FormEvent, date: string, courseId: string) {
+    e.preventDefault();
+    if (savingNote) return;
+    const trimmed = addingNoteText.trim();
+    if (!trimmed) return;
+    setSavingNote(true);
+    try {
+      const res = await createCourseNote({
+        semesterId: semester.id,
+        courseId,
+        noteDate: date,
+        body: trimmed,
+      });
+      if (res.error) {
+        alert(res.error);
+      } else {
+        setAddingNoteFor(null);
+        setAddingNoteText("");
+        onStatusChanged();
+      }
+    } catch (err) {
+      console.error("Failed to create note:", err);
+    } finally {
+      setSavingNote(false);
+    }
+  }
+
+  async function handleSaveEditedNote(e: FormEvent, noteId: string) {
+    e.preventDefault();
+    if (savingNote) return;
+    const trimmed = editingNoteText.trim();
+    if (!trimmed) return;
+    setSavingNote(true);
+    try {
+      const res = await updateCourseNote({ noteId, body: trimmed });
+      if (res.error) {
+        alert(res.error);
+      } else {
+        setEditingNoteId(null);
+        setEditingNoteText("");
+        onStatusChanged();
+      }
+    } catch (err) {
+      console.error("Failed to update note:", err);
+    } finally {
+      setSavingNote(false);
+    }
+  }
+
+  async function handleDeleteNote(noteId: string) {
+    if (savingNote) return;
+    setSavingNote(true);
+    try {
+      const res = await deleteCourseNote(noteId);
+      if (res.error) {
+        alert(res.error);
+      } else {
+        if (editingNoteId === noteId) {
+          setEditingNoteId(null);
+        }
+        onStatusChanged();
+      }
+    } catch (err) {
+      console.error("Failed to delete note:", err);
+    } finally {
+      setSavingNote(false);
     }
   }
 
@@ -419,9 +541,186 @@ export function AssignmentListView({
                       </div>
                     </td>
 
-                    {/* Topics Column (Preserved hook for future course notes/topics) */}
-                    <td className="py-2 px-3 align-top border-r border-[#ebd5dd] text-muted-foreground/60 min-w-44">
-                      {/* Blank hook for future topics */}
+                    {/* Topics Column */}
+                    <td className="py-2 px-3 align-top border-r border-[#ebd5dd] min-w-52 group/topic">
+                      {courseRow.isGeneral ? (
+                        <span className="text-muted-foreground/40 text-[11px] italic">—</span>
+                      ) : (
+                        (() => {
+                          const cellNotes = notesByDateAndCourse.get(`${group.date}:${courseRow.id}`) ?? [];
+                          const isAddingThis = addingNoteFor?.date === group.date && addingNoteFor?.courseId === courseRow.id;
+
+                          return (
+                            <div className="space-y-1.5">
+                              {cellNotes.map((note) => {
+                                const isEditing = editingNoteId === note.id;
+                                if (isEditing) {
+                                  return (
+                                    <form
+                                      key={note.id}
+                                      onSubmit={(e) => void handleSaveEditedNote(e, note.id)}
+                                      className="flex items-center gap-1"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <input
+                                        type="text"
+                                        value={editingNoteText}
+                                        onChange={(e) => setEditingNoteText(e.target.value)}
+                                        autoFocus
+                                        className="h-6 w-full rounded border border-brand-ink bg-white px-1.5 text-xs outline-none"
+                                        placeholder="Topic or note..."
+                                      />
+                                      <button
+                                        type="submit"
+                                        disabled={savingNote || !editingNoteText.trim()}
+                                        className="flex size-5 shrink-0 items-center justify-center rounded bg-brand-ink text-white hover:bg-brand-ink/90"
+                                        title="Save topic"
+                                        aria-label="Save topic"
+                                      >
+                                        <Check className="size-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingNoteId(null)}
+                                        className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+                                        title="Cancel"
+                                        aria-label="Cancel"
+                                      >
+                                        <X className="size-3" />
+                                      </button>
+                                    </form>
+                                  );
+                                }
+
+                                return (
+                                  <div
+                                    key={note.id}
+                                    className="group/note flex items-start gap-1.5 text-xs"
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleToggleNote(note)}
+                                      disabled={togglingNoteId === note.id}
+                                      className={`mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
+                                        note.is_done
+                                          ? "border-brand-ink bg-brand-ink text-white"
+                                          : "border-input bg-white hover:border-brand-ink"
+                                      }`}
+                                      aria-label={note.is_done ? "Mark topic incomplete" : "Mark topic complete"}
+                                    >
+                                      {note.is_done && <Check className="size-2.5 stroke-[3]" />}
+                                    </button>
+
+                                    <span
+                                      className={`min-w-0 flex-1 break-words cursor-pointer hover:text-brand-ink ${
+                                        note.is_done ? "line-through text-muted-foreground opacity-65" : "text-ink"
+                                      }`}
+                                      onClick={() => {
+                                        setEditingNoteId(note.id);
+                                        setEditingNoteText(note.body);
+                                      }}
+                                      title="Click to edit topic"
+                                    >
+                                      {note.body}
+                                    </span>
+
+                                    <div className="opacity-0 group-hover/note:opacity-100 flex items-center gap-0.5 shrink-0 transition-opacity">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingNoteId(note.id);
+                                          setEditingNoteText(note.body);
+                                        }}
+                                        className="p-0.5 text-muted-foreground hover:text-brand-ink rounded"
+                                        title="Edit topic"
+                                        aria-label="Edit topic"
+                                      >
+                                        <Edit2 className="size-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleDeleteNote(note.id)}
+                                        className="p-0.5 text-muted-foreground hover:text-red-600 rounded"
+                                        title="Delete topic"
+                                        aria-label="Delete topic"
+                                      >
+                                        <Trash2 className="size-3" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+
+                              {/* Form to add note */}
+                              {isAddingThis ? (
+                                <form
+                                  onSubmit={(e) => void handleSaveNewNote(e, group.date, courseRow.id)}
+                                  className="flex items-center gap-1 mt-1"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <input
+                                    type="text"
+                                    value={addingNoteText}
+                                    onChange={(e) => setAddingNoteText(e.target.value)}
+                                    autoFocus
+                                    className="h-6 w-full rounded border border-brand-ink bg-white px-1.5 text-xs outline-none"
+                                    placeholder="Topic or note..."
+                                  />
+                                  <button
+                                    type="submit"
+                                    disabled={savingNote || !addingNoteText.trim()}
+                                    className="flex size-5 shrink-0 items-center justify-center rounded bg-brand-ink text-white hover:bg-brand-ink/90"
+                                    title="Add topic"
+                                    aria-label="Add topic"
+                                  >
+                                    <Check className="size-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setAddingNoteFor(null)}
+                                    className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted"
+                                    title="Cancel"
+                                    aria-label="Cancel"
+                                  >
+                                    <X className="size-3" />
+                                  </button>
+                                </form>
+                              ) : (
+                                cellNotes.length > 0 && (
+                                  <div className="opacity-0 group-hover/topic:opacity-100 transition-opacity pt-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setAddingNoteFor({ date: group.date, courseId: courseRow.id });
+                                        setAddingNoteText("");
+                                      }}
+                                      className="text-[11px] text-muted-foreground hover:text-brand-ink flex items-center gap-1 font-medium"
+                                    >
+                                      <Plus className="size-2.5" />
+                                      Add topic
+                                    </button>
+                                  </div>
+                                )
+                              )}
+
+                              {cellNotes.length === 0 && !isAddingThis && (
+                                <div
+                                  className="flex items-center min-h-[1.5rem] cursor-pointer"
+                                  onClick={() => {
+                                    setAddingNoteFor({ date: group.date, courseId: courseRow.id });
+                                    setAddingNoteText("");
+                                  }}
+                                >
+                                  <span className="opacity-0 group-hover/topic:opacity-100 text-[11px] text-muted-foreground hover:text-brand-ink flex items-center gap-1 font-medium transition-opacity">
+                                    <Plus className="size-3" />
+                                    Add topic
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()
+                      )}
                     </td>
 
                     {/* Assignments Column */}
@@ -429,7 +728,7 @@ export function AssignmentListView({
                       className="py-1.5 px-3 align-top group/cell cursor-pointer"
                       onClick={(e) => {
                         const target = e.target as HTMLElement;
-                        if (target.closest("button") || target.closest("a")) return;
+                        if (target.closest("button") || target.closest("a") || target.closest("form") || target.closest("input")) return;
                         onAddAssignment(group.date, courseRow.isGeneral ? null : courseRow.id);
                       }}
                       title="Click to add assignment"
@@ -507,6 +806,45 @@ export function AssignmentListView({
                                   <span className="text-[10px] text-muted-foreground shrink-0 font-normal">
                                     {displayTime(assignment.due_time)}
                                   </span>
+                                )}
+
+                                {/* Pin to Weekly Focus action */}
+                                {onTogglePinAssignment && activeWeekStart && (
+                                  (() => {
+                                    const isPinnedInActiveWeek = weeklyFocusItems.some(
+                                      (w) => w.assignment_id === assignment.id && w.week_start === activeWeekStart
+                                    );
+                                    return (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          onTogglePinAssignment(assignment.id);
+                                        }}
+                                        className={`p-0.5 transition-opacity rounded ml-auto shrink-0 ${
+                                          isPinnedInActiveWeek
+                                            ? "text-brand-ink opacity-100"
+                                            : "text-muted-foreground opacity-0 group-hover/item:opacity-80 hover:text-brand-ink"
+                                        }`}
+                                        title={
+                                          isPinnedInActiveWeek
+                                            ? "Pinned in Weekly Focus (Click to remove pin)"
+                                            : "Pin to Weekly Focus"
+                                        }
+                                        aria-label={
+                                          isPinnedInActiveWeek
+                                            ? "Pinned in Weekly Focus"
+                                            : "Pin to Weekly Focus"
+                                        }
+                                      >
+                                        <Pin
+                                          className={`size-3 ${
+                                            isPinnedInActiveWeek ? "fill-brand-ink" : ""
+                                          }`}
+                                        />
+                                      </button>
+                                    );
+                                  })()
                                 )}
                               </div>
                             );

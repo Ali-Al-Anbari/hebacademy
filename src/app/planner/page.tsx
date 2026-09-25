@@ -8,7 +8,19 @@ export default async function PlannerPage() {
   if (authError || !auth?.claims?.sub) redirect("/login");
   const userId = auth.claims.sub;
 
-  const [semesters, plannerCourses, meetings, exceptions, courses, assignments, customTypes, urls, subtasks] = await Promise.all([
+  const [
+    semesters,
+    plannerCourses,
+    meetings,
+    exceptions,
+    courses,
+    assignments,
+    customTypes,
+    urls,
+    subtasks,
+    courseNotes,
+    weeklyFocusItems,
+  ] = await Promise.all([
     supabase.from("planner_semesters")
       .select("id, name, start_date, end_date, time_zone, archived_at, created_at")
       .eq("user_id", userId).order("created_at", { ascending: false }),
@@ -34,8 +46,26 @@ export default async function PlannerPage() {
     supabase.from("planner_assignment_subtasks")
       .select("id, assignment_id, title, is_done, due_date, position")
       .eq("user_id", userId).order("position", { ascending: true }),
+    supabase.from("planner_course_notes")
+      .select("id, semester_id, planner_course_id, note_date, body, is_done, created_at, updated_at")
+      .eq("user_id", userId).order("created_at", { ascending: true }),
+    supabase.from("planner_weekly_focus_items")
+      .select("id, semester_id, week_start, position, title, is_done, assignment_id, occurrence_date, created_at, updated_at")
+      .eq("user_id", userId).order("position", { ascending: true }),
   ]);
-  const failure = [semesters, plannerCourses, meetings, exceptions, courses, assignments, customTypes, urls, subtasks].find((result) => result.error);
+  const failure = [
+    semesters,
+    plannerCourses,
+    meetings,
+    exceptions,
+    courses,
+    assignments,
+    customTypes,
+    urls,
+    subtasks,
+    courseNotes,
+    weeklyFocusItems,
+  ].find((result) => result.error);
   if (failure?.error) console.error("Failed to load planner:", failure.error);
 
   return (
@@ -54,6 +84,8 @@ export default async function PlannerPage() {
           customTypes={customTypes.data ?? []}
           urls={urls.data ?? []}
           subtasks={subtasks.data ?? []}
+          courseNotes={(courseNotes.data ?? []) as import("@/lib/planner/types").PlannerCourseNote[]}
+          weeklyFocusItems={(weeklyFocusItems.data ?? []) as import("@/lib/planner/types").PlannerWeeklyFocusItem[]}
         />
       )}
     </main>

@@ -28,7 +28,9 @@ import type {
   MeetingException,
   PlannerAssignment,
   PlannerCourse,
+  PlannerCourseNote,
   PlannerCustomType,
+  PlannerWeeklyFocusItem,
   Semester,
 } from "@/lib/planner/types";
 import { removeMeetingException, saveMeetingException } from "./actions";
@@ -45,10 +47,14 @@ export function PlannerCalendar({
   customTypes,
   urls,
   subtasks,
+  courseNotes,
+  weeklyFocusItems,
+  activeWeekStart,
   today,
   onEditRecurring,
   onOpenAssignment,
   onAddAssignment,
+  onTogglePinAssignment,
   onSaved,
 }: {
   semester: Semester;
@@ -59,10 +65,14 @@ export function PlannerCalendar({
   customTypes: PlannerCustomType[];
   urls: AssignmentUrl[];
   subtasks: AssignmentSubtask[];
+  courseNotes?: PlannerCourseNote[];
+  weeklyFocusItems?: PlannerWeeklyFocusItem[];
+  activeWeekStart?: string;
   today?: string;
   onEditRecurring: (courseId: string) => void;
   onOpenAssignment: (assignment: PlannerAssignment) => void;
   onAddAssignment: (initialDate?: string, initialCourseId?: string | null) => void;
+  onTogglePinAssignment?: (assignmentId: string) => void;
   onSaved: () => void;
 }) {
   const calendar = useRef<CalendarRef>(null);
@@ -440,11 +450,15 @@ export function PlannerCalendar({
           exceptions={exceptions}
           customTypes={customTypes}
           assignments={assignments}
+          courseNotes={courseNotes}
+          weeklyFocusItems={weeklyFocusItems}
+          activeWeekStart={activeWeekStart}
           urls={urls}
           subtasks={subtasks}
           today={today ?? semester.start_date}
           onOpenAssignment={onOpenAssignment}
           onAddAssignment={onAddAssignment}
+          onTogglePinAssignment={onTogglePinAssignment}
           onStatusChanged={onSaved}
         />
       )}

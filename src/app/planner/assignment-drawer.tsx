@@ -10,6 +10,7 @@ import {
   Check,
   Clock,
   ExternalLink,
+  Pin,
   Plus,
   Trash2,
   X,
@@ -28,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { isDateOnly, isValidHttpUrl } from "@/lib/planner/dates";
+import { formatShortDate, isDateOnly, isValidHttpUrl } from "@/lib/planner/dates";
 import {
   ASSIGNMENT_TYPE_LABELS,
   BUILTIN_ASSIGNMENT_TYPES,
@@ -44,6 +45,7 @@ import {
   type PlannerAssignment,
   type PlannerCourse,
   type PlannerCustomType,
+  type PlannerWeeklyFocusItem,
   type Semester,
 } from "@/lib/planner/types";
 import {
@@ -61,11 +63,14 @@ type Props = {
   assignment: PlannerAssignment | null;
   initialDate?: string | null;
   initialCourseId?: string | null;
+  weeklyFocusItems?: PlannerWeeklyFocusItem[];
+  activeWeekStart?: string;
   urls?: AssignmentUrl[];
   subtasks?: AssignmentSubtask[];
   onSaved: (savedId?: string) => void;
   onDeleted?: () => void;
   onCustomTypeCreated: (type: PlannerCustomType) => void;
+  onTogglePin?: (assignmentId: string) => void;
 };
 
 function AssignmentDrawerForm({
@@ -76,11 +81,14 @@ function AssignmentDrawerForm({
   assignment,
   initialDate,
   initialCourseId,
+  weeklyFocusItems = [],
+  activeWeekStart,
   urls = [],
   subtasks = [],
   onSaved,
   onDeleted,
   onCustomTypeCreated,
+  onTogglePin,
 }: Omit<Props, "isOpen">) {
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -834,6 +842,45 @@ function AssignmentDrawerForm({
           )}
         </div>
 
+        {/* Weekly Focus Pinning (for existing assignment) */}
+        {assignment && onTogglePin && activeWeekStart && (
+          (() => {
+            const isPinned = weeklyFocusItems.some(
+              (w) => w.assignment_id === assignment.id && w.week_start === activeWeekStart
+            );
+            return (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-[#ebd5dd] bg-white p-3 text-xs shadow-xs">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`flex size-7 shrink-0 items-center justify-center rounded-md ${
+                    isPinned ? "bg-brand-ink/10 text-brand-ink" : "bg-[#fbf0f4] text-muted-foreground"
+                  }`}>
+                    <Pin className={`size-3.5 ${isPinned ? "fill-brand-ink" : ""}`} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-ink truncate">
+                      {isPinned ? "Pinned in Weekly Focus" : "Pin to Weekly Focus"}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      {isPinned
+                        ? `Included in your Weekly Focus for week of ${formatShortDate(activeWeekStart)}.`
+                        : `Add to this week's checklist (${formatShortDate(activeWeekStart)}).`}
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant={isPinned ? "outline" : "secondary"}
+                  size="sm"
+                  className="h-7 text-xs font-semibold shrink-0"
+                  onClick={() => onTogglePin(assignment.id)}
+                >
+                  {isPinned ? "Remove pin" : "Pin to focus"}
+                </Button>
+              </div>
+            );
+          })()
+        )}
+
         {/* Actions Footer */}
         <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-2 border-t border-border/80 bg-[#fdf1f5]/90 p-4 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
           {assignment ? (
@@ -914,11 +961,14 @@ export function AssignmentDrawer(props: Props) {
               assignment={props.assignment}
               initialDate={props.initialDate}
               initialCourseId={props.initialCourseId}
+              weeklyFocusItems={props.weeklyFocusItems}
+              activeWeekStart={props.activeWeekStart}
               urls={props.urls}
               subtasks={props.subtasks}
               onSaved={props.onSaved}
               onDeleted={props.onDeleted}
               onCustomTypeCreated={props.onCustomTypeCreated}
+              onTogglePin={props.onTogglePin}
             />
           )}
         </DialogPrimitive.Popup>
