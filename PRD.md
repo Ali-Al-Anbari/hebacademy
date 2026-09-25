@@ -1,5 +1,8 @@
 # Hebacademy — Product Requirements Document
 
+PRD.md defines product behavior and feature requirements.
+DESIGN.md, when present, overrides PRD.md only for visual/UI decisions.
+
 ## 1. Product Overview
 
 **Product name:** Hebacademy
@@ -837,3 +840,311 @@ The redesign is complete when:
 **Function first, polish deliberately, complexity only when earned.**
 
 Hebacademy should be pleasant enough to use every day, simple enough to understand, and engineered well enough to explain confidently in an interview.
+
+
+## Academic Planner
+
+### Goal
+Hebacademy should include an academic planner that combines:
+- semester organization
+- course schedule
+- assignments
+- calendar views
+- course notes
+- Weekly Focus
+- assignment-to-study integration
+
+The planner should help a student quickly answer:
+- What is due today?
+- What is due in the next 3 days?
+- What is overdue?
+- What should I focus on this week?
+- What course/class is associated with each assignment?
+- Can I jump directly from an exam/assignment into studying?
+
+### Semester model
+Each semester has:
+- name
+- start date
+- end date
+- archived state
+
+Examples:
+- Fall 2026
+- Spring 2027
+
+Archived semesters should disappear from the active planner by default but remain viewable through an archived-semester selector.
+
+### Planner Courses
+Planner courses do not require an existing Hebacademy course.
+
+A planner course may:
+- exist independently
+- optionally link to an existing Hebacademy course
+- have its own configurable color
+- have recurring meeting days/times
+- belong to one semester
+
+Users should choose meeting days and times when creating a course.
+
+Course meeting blocks should appear every week during the semester.
+
+The course should also remain visually available on non-meeting days so users can still attach due dates and course notes to that course.
+
+Meeting days should be visually stronger.
+Non-meeting days should appear more transparent/subtle.
+
+Users should be able to edit a single meeting occurrence without changing the full recurring series.
+
+### Calendar Views
+Support:
+- Month view
+- Week/agenda view
+- Assignments list view
+
+Users can toggle between views.
+
+Month view:
+- multi-day assignments appear as one spanning bar
+- assignments use the associated course color
+- desktop double-click on a day opens Add Assignment
+- mobile tap selects a day and exposes an Add action
+- assignments can be dragged to another date
+
+Clicking an assignment should open an inline-edit side drawer/modal rather than navigating away.
+
+### Assignments
+Each assignment supports:
+
+- title
+- optional course
+- required due/end date
+- optional start date
+- optional due time
+- optional description/notes
+- type
+- custom user-defined assignment type
+- status
+- priority
+- recurrence
+- multiple URLs
+- file attachments
+- subtasks
+- optional linked flashcard decks
+- optional linked study schedule
+
+Assignment types may include:
+- Homework
+- Quiz
+- Exam
+- Lab
+- Reading
+- Project
+- Discussion
+- Other
+
+Users may create custom types.
+
+Status:
+- Not Started
+- In Progress
+- Done
+
+Checking the assignment checkbox sets it to Done.
+Unchecking it returns it to Not Started.
+
+Completed assignments remain visible and crossed out until manually deleted.
+
+Priority:
+- Normal
+- Important
+
+Important assignments should receive a small strong visual indicator such as a red exclamation mark.
+Priority should not automatically change sorting.
+
+### Assignment Date Rules
+Due/end date is mandatory.
+
+Start date is optional.
+
+Assignments may span multiple days.
+
+In month view, multi-day assignments should render as one continuous bar.
+
+In list view, show the date range clearly.
+
+### Recurring Assignments
+Support:
+- daily
+- selected weekdays
+- weekly
+- every X weeks
+- monthly
+
+Recurrence can end:
+- at semester end
+- on a selected date
+- never
+
+### Assignment Links
+Assignments may contain multiple URLs.
+
+Examples:
+- Canvas
+- Blackboard
+- Google Docs
+- lecture recording
+- external resource
+
+### Attachments
+Assignments support file attachments stored securely in Supabase Storage.
+
+Support common academic files such as:
+- PDF
+- images
+- Word documents
+- PowerPoint
+- spreadsheets
+
+Use a reasonable per-file upload size limit.
+
+Attachments must remain private to the authenticated owner.
+
+### Subtasks
+Assignments may contain subtasks.
+
+Each subtask supports:
+- title
+- checkbox/completion state
+- optional due date
+- reorder
+
+### Course Notes
+Users may add multiple simple notes to a course on a specific date.
+
+Example:
+- Review day
+- Pay attention to chapter 4
+- Bring lab materials
+
+These are separate from assignments.
+
+### Weekly Focus
+Desktop should include a sticky side panel called Weekly Focus.
+
+The panel remains visible while scrolling.
+
+Weekly Focus supports:
+- freeform items
+- pinned assignments
+- checkboxes
+- manual drag reordering
+- crossed-out completed state
+- manual deletion
+
+Weekly Focus items never auto-delete.
+
+Weekly Focus is tied to a specific calendar week.
+
+Users can navigate backward and forward between weeks using arrows.
+
+Pinned assignments and their completion state stay synchronized with the main assignment record.
+
+Weekly Focus does not require time fields.
+
+On mobile, Weekly Focus should appear in a drawer accessed from a clear persistent control.
+
+### Dashboard Planner Summary
+The main dashboard should show a compact planner summary.
+
+Show:
+- Overdue section only when overdue items exist
+- items due today
+- items due tomorrow
+- items due the following day
+
+"Next 3 days" means:
+Today + next 2 calendar days.
+
+Show anything due:
+- homework
+- quizzes
+- exams
+- labs
+- projects
+- other assignments
+
+Do not show routine class meeting blocks in this summary.
+
+Clicking the planner summary title should navigate to the full planner/calendar.
+
+### Study Integration
+Assignments may link to one or more flashcard decks.
+
+An Exam assignment should support:
+- Create Study Schedule
+- linking the generated study schedule back to the assignment
+
+Once linked, the assignment should show:
+- Study schedule created
+- review progress, e.g. 2 of 4 reviews completed
+- button/link to open the study schedule
+
+Assignments may link to multiple decks.
+
+### Course Color System
+Each planner course has its own user-configurable color.
+
+Provide:
+- curated accessible color choices
+- optional custom color picker
+
+Assignments use the associated course color in calendar views.
+
+The overall Hebacademy planner should retain the existing pink visual language, while course colors distinguish individual classes.
+
+### Completion / Deletion
+Completed assignments remain visible and crossed out.
+
+Weekly Focus completed items remain visible and crossed out.
+
+Nothing auto-deletes.
+
+Permanent deletion requires confirmation.
+
+### Archiving
+Semesters can be archived.
+
+Archived semesters:
+- disappear from the active planner by default
+- retain all courses, assignments, notes, and history
+- remain accessible through archived-semester navigation
+
+### Notifications
+Do not implement notifications or reminders in V1.
+
+### Sharing
+Planner data is private per authenticated account.
+
+Do not implement sharing or collaborative calendars in V1.
+
+### Import
+CSV/Excel assignment import is not required for V1.
+
+The schema should not make future import unnecessarily difficult.
+
+### UI Direction
+Use the same Hebacademy pink visual identity.
+
+Avoid generic white SaaS dashboard styling.
+
+Calendar should be readable and practical, with course-colored assignments.
+
+Use:
+- Month / Week / List toggle
+- inline assignment drawer
+- sticky Weekly Focus panel on desktop
+- Weekly Focus drawer on mobile
+- compact 3-day dashboard summary
+
+Do not create an overly complex enterprise calendar UI.
