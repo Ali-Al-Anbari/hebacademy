@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ListTodo } from "lucide-react";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import { BookOpen, ListTodo, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { useLocalToday } from "@/lib/local-calendar";
 import {
+  formatShortDate,
   getMondayOfWeek,
   isTimeZone,
   localDate,
@@ -69,6 +71,9 @@ export function PlannerWorkspace({
   const [archived, setArchived] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [scheduleCourseId, setScheduleCourseId] = useState<string | null>(null);
+
+  // Classes Drawer state
+  const [classesOpen, setClassesOpen] = useState(false);
 
   // Assignment drawer state
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -153,6 +158,11 @@ export function PlannerWorkspace({
     });
   }
 
+  function handleEditRecurring(courseId: string) {
+    setScheduleCourseId(courseId);
+    setClassesOpen(true);
+  }
+
   async function handleTogglePinAssignment(assignmentId: string) {
     if (!selected) return;
     const isPinned = selectedWeeklyFocus.some(
@@ -183,60 +193,83 @@ export function PlannerWorkspace({
 
   return (
     <>
-      <header className="page-intro planner-intro">
-        <p className="page-eyebrow">Academic workspace</p>
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="page-title">Planner</h1>
-            <p className="page-description">Keep your semester, classes, and assignments in view.</p>
-          </div>
-          {archivedCount > 0 && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setArchived(!archived);
-                setSelectedId(null);
-                setScheduleCourseId(null);
-              }}
-            >
-              {archived ? "Active semesters" : `Archived (${archivedCount})`}
-            </Button>
-          )}
-        </div>
-      </header>
-
       {selected ? (
         <>
+          {/* Compact Planner Header & Toolbar */}
           <div className="planner-semester-bar">
-            <div className="min-w-0">
-              <label
-                htmlFor="planner-semester-select"
-                className="mb-1 block text-xs font-semibold text-muted-foreground"
-              >
-                {archived ? "Archived semester" : "Semester"}
-              </label>
-              <select
-                id="planner-semester-select"
-                className="planner-semester-select"
-                value={selected.id}
-                onChange={(event) => {
-                  setSelectedId(event.target.value);
-                  setScheduleCourseId(null);
+            {/* Left: Compact Semester Dropdown & Date Range & Settings */}
+            <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+              <div className="flex items-center gap-1.5">
+                <select
+                  id="planner-semester-select"
+                  aria-label="Select semester"
+                  value={selected.id}
+                  onChange={(event) => {
+                    setSelectedId(event.target.value);
+                    setScheduleCourseId(null);
+                  }}
+                  className="font-heading font-bold text-lg sm:text-xl text-[#2A2024] bg-transparent outline-none cursor-pointer hover:text-brand-ink transition-colors pr-1 rounded"
+                >
+                  {visible.map((semester) => (
+                    <option key={semester.id} value={semester.id}>
+                      {semester.name}
+                    </option>
+                  ))}
+                </select>
+                {archived && (
+                  <span className="rounded bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider">
+                    Archived
+                  </span>
+                )}
+              </div>
+
+              <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                {formatShortDate(selected.start_date)} – {formatShortDate(selected.end_date)}
+              </span>
+
+              <SemesterControls
+                semester={selected}
+                onSaved={(id) => {
+                  if (selected.archived_at && !id) setArchived(false);
+                  saved(id ?? (selected.archived_at ? selected.id : undefined));
                 }}
-              >
-                {visible.map((semester) => (
-                  <option key={semester.id} value={semester.id}>
-                    {semester.name}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {selected.start_date} – {selected.end_date} · {selected.time_zone}
-              </p>
+              />
+
+              {archivedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setArchived(!archived);
+                    setSelectedId(null);
+                    setScheduleCourseId(null);
+                  }}
+                  className="text-xs text-muted-foreground hover:text-brand-ink font-medium underline underline-offset-2 transition-colors ml-1"
+                >
+                  {archived ? "Active semesters" : `Archived (${archivedCount})`}
+                </button>
+              )}
             </div>
 
+            {/* Right: Actions */}
             <div className="flex flex-wrap items-center gap-2">
+              {/* Classes Drawer Button */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setClassesOpen(true)}
+                className="h-8 text-xs font-semibold gap-1.5 border-[#dabac4] bg-[#fff9fb] hover:bg-[#ffeef3]"
+                title="Manage classes & schedules"
+              >
+                <BookOpen className="size-3.5 text-brand-ink" />
+                Classes
+                {selectedCourses.length > 0 && (
+                  <span className="rounded-full bg-brand-ink/15 text-brand-ink px-1.5 py-0.2 text-[10px] font-bold">
+                    {selectedCourses.length}
+                  </span>
+                )}
+              </Button>
+
               {/* Mobile / Tablet Weekly Focus Trigger */}
               <Button
                 type="button"
@@ -254,40 +287,28 @@ export function PlannerWorkspace({
                 )}
               </Button>
 
-              <SemesterControls
-                semester={selected}
-                onSaved={(id) => {
-                  if (selected.archived_at && !id) setArchived(false);
-                  saved(id ?? (selected.archived_at ? selected.id : undefined));
-                }}
-              />
+              {/* Add Assignment Primary Button */}
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => handleOpenNewAssignment()}
+                className="h-8 text-xs font-semibold gap-1 px-3"
+              >
+                <Plus className="size-3.5" />
+                Assignment
+              </Button>
             </div>
           </div>
 
           {archived && (
-            <p className="mt-4 text-sm text-muted-foreground">
+            <p className="mt-2 text-xs text-muted-foreground">
               This archived semester remains readable. You can unarchive it to resume planning.
             </p>
           )}
 
-          {/* 3-Column Responsive Planner Layout */}
-          <div className="planner-workspace-layout mt-6 flex flex-col xl:flex-row gap-6 items-start">
-            {/* Left: Classes & Meetings */}
-            <div className="w-full xl:w-64 shrink-0">
-              <CoursePanel
-                key={`${selected.id}:${scheduleCourseId ?? "closed"}`}
-                semester={selected}
-                courses={selectedCourses}
-                meetings={selectedMeetings}
-                exceptions={selectedExceptions}
-                hebacademyCourses={hebacademyCourses}
-                scheduleCourseId={scheduleCourseId}
-                setScheduleCourseId={setScheduleCourseId}
-                onSaved={() => saved(selected.id)}
-              />
-            </div>
-
-            {/* Center: Main Calendar / Spreadsheet */}
+          {/* Optimized 2-Column Responsive Workspace: Dominant Planner + Compact Weekly Focus */}
+          <div className="planner-workspace-layout mt-3.5 flex flex-col xl:flex-row gap-4 items-start">
+            {/* Dominant Planner Surface: Calendar / Spreadsheet List */}
             <div className="min-w-0 flex-1 w-full">
               {!isTimeZone(selected.time_zone) ? (
                 <p role="alert" className="notice-error">
@@ -308,7 +329,7 @@ export function PlannerWorkspace({
                   weeklyFocusItems={selectedWeeklyFocus}
                   activeWeekStart={activeWeekStart}
                   today={today}
-                  onEditRecurring={setScheduleCourseId}
+                  onEditRecurring={handleEditRecurring}
                   onOpenAssignment={handleOpenEditAssignment}
                   onAddAssignment={handleOpenNewAssignment}
                   onTogglePinAssignment={handleTogglePinAssignment}
@@ -321,8 +342,8 @@ export function PlannerWorkspace({
               )}
             </div>
 
-            {/* Right: Desktop Sticky Weekly Focus */}
-            <div className="hidden xl:block w-72 shrink-0 sticky top-6 self-start max-h-[calc(100vh-3rem)] overflow-y-auto">
+            {/* Compact Desktop Weekly Focus (~280px) */}
+            <div className="hidden xl:block w-[280px] shrink-0 sticky top-3 self-start max-h-[calc(100vh-2rem)] overflow-y-auto">
               <WeeklyFocus
                 semester={selected}
                 weekStart={activeWeekStart}
@@ -337,6 +358,47 @@ export function PlannerWorkspace({
               />
             </div>
           </div>
+
+          {/* Classes Slide-out Drawer */}
+          <DialogPrimitive.Root open={classesOpen} onOpenChange={setClassesOpen}>
+            <DialogPrimitive.Portal>
+              <DialogPrimitive.Backdrop
+                className="fixed inset-0 z-40 bg-[#261820]/30 backdrop-blur-[1px] duration-200 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0"
+              />
+              <DialogPrimitive.Popup
+                className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-border bg-[#fff9fb] text-popover-foreground shadow-[-12px_0_40px_#23182025] outline-none overflow-y-auto p-5 sm:max-w-lg duration-200 data-open:animate-in data-open:slide-in-from-right data-closed:animate-out data-closed:slide-out-to-right"
+              >
+                <div className="flex items-center justify-between pb-3 border-b border-[#bd8f9e]">
+                  <div>
+                    <h2 className="text-lg font-bold font-heading text-[#2A2024]">Classes & Schedule</h2>
+                    <p className="text-xs text-muted-foreground">{selected.name}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setClassesOpen(false)}
+                    className="flex size-7 items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-ink transition-colors"
+                    title="Close classes drawer"
+                    aria-label="Close classes drawer"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+                <div className="pt-3">
+                  <CoursePanel
+                    key={`${selected.id}:${scheduleCourseId ?? "closed"}`}
+                    semester={selected}
+                    courses={selectedCourses}
+                    meetings={selectedMeetings}
+                    exceptions={selectedExceptions}
+                    hebacademyCourses={hebacademyCourses}
+                    scheduleCourseId={scheduleCourseId}
+                    setScheduleCourseId={setScheduleCourseId}
+                    onSaved={() => saved(selected.id)}
+                  />
+                </div>
+              </DialogPrimitive.Popup>
+            </DialogPrimitive.Portal>
+          </DialogPrimitive.Root>
 
           {/* Mobile Weekly Focus Dialog */}
           <Dialog open={mobileFocusOpen} onOpenChange={setMobileFocusOpen}>

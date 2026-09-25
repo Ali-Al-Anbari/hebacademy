@@ -128,9 +128,9 @@ button:disabled:hover { transform: none; }
 .course-row, .schedule-row, .deck-card-row { transition: background-color .16s ease; }
 
 /* Planner extends the pink workspace without enclosing the calendar in cards. */
-.planner-page { max-width: 96rem; }
-.planner-intro { padding-bottom: .8rem; }
-.planner-semester-bar { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 1rem 1.5rem; border-block: 1px solid #bd8f9e; padding-block: 1rem; }
+.planner-page { width: min(calc(100% - 2rem), 116rem); max-width: 116rem; padding-block: .75rem 2rem; }
+.planner-intro { padding-bottom: .5rem; }
+.planner-semester-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem 1.25rem; border-block: 1px solid #bd8f9e; padding-block: .65rem; }
 .planner-semester-select { min-width: min(20rem, calc(100vw - 2rem)); max-width: 100%; background: transparent; color: var(--color-ink); font-family: var(--font-display), sans-serif; font-size: 1.25rem; font-weight: 700; letter-spacing: -.025em; outline-offset: .2rem; }
 .planner-workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.75rem; align-items: start; }
 .planner-classes { min-width: 0; }
@@ -138,7 +138,7 @@ button:disabled:hover { transform: none; }
 .planner-text-action:hover, .planner-text-action:focus-visible { text-decoration-color: currentColor; }
 .planner-empty { border-block: 1px solid #bd8f9e; padding-block: 1.6rem; }
 .planner-calendar-wrap { min-width: 0; }
-.planner-calendar-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem 1.5rem; padding-bottom: 1rem; }
+.planner-calendar-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; padding-bottom: .6rem; }
 .planner-calendar { min-width: 0; overflow-x: auto; border: 1px solid #d2aab7; border-radius: .75rem; background: #fff8fa; box-shadow: 0 2px 14px #23182006; }
 .planner-calendar .fc { --fc-classic-background: #fff8fa; --fc-classic-foreground: #2A2024; --fc-classic-muted-foreground: #70545e; --fc-classic-border: #dabac4; --fc-classic-today: #FFC2D155; --fc-classic-highlight: #FFB3C65c; --fc-classic-primary: #FB6F92; --fc-classic-primary-foreground: #2A2024; font-family: var(--font-body), sans-serif; font-size: .85rem; }
 .planner-calendar .fc-theme-classic th { background-color: #fdf1f5; border-color: #dabac4; color: var(--color-ink); font-weight: 650; padding: 6px 0; font-size: .8rem; }

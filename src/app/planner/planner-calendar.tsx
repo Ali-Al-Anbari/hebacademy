@@ -33,10 +33,27 @@ import type {
   PlannerWeeklyFocusItem,
   Semester,
 } from "@/lib/planner/types";
+import {
+  getSavedPlannerView,
+  savePlannerView,
+  type PlannerViewMode,
+} from "@/lib/planner/view-persistence";
 import { removeMeetingException, saveMeetingException } from "./actions";
 import { AssignmentListView } from "./assignment-list";
 
 const plugins = [classicTheme, dayGridPlugin, timeGridPlugin, interactionPlugin];
+
+function viewModeToFC(mode: PlannerViewMode): "dayGridMonth" | "timeGridWeek" | "list" {
+  if (mode === "week") return "timeGridWeek";
+  if (mode === "list") return "list";
+  return "dayGridMonth";
+}
+
+function fcToViewMode(fcView: "dayGridMonth" | "timeGridWeek" | "list"): PlannerViewMode {
+  if (fcView === "timeGridWeek") return "week";
+  if (fcView === "list") return "list";
+  return "month";
+}
 
 export function PlannerCalendar({
   semester,
@@ -79,7 +96,9 @@ export function PlannerCalendar({
   const inFlight = useRef(false);
   const lastClickRef = useRef<{ date: string; time: number } | null>(null);
 
-  const [view, setView] = useState<"dayGridMonth" | "timeGridWeek" | "list">("dayGridMonth");
+  const [view, setView] = useState<"dayGridMonth" | "timeGridWeek" | "list">(() => {
+    return viewModeToFC(getSavedPlannerView());
+  });
   const [title, setTitle] = useState("");
   const [tappedDate, setTappedDate] = useState<string | null>(null);
 
@@ -192,6 +211,7 @@ export function PlannerCalendar({
 
   function changeView(next: "dayGridMonth" | "timeGridWeek" | "list") {
     setView(next);
+    savePlannerView(fcToViewMode(next));
     if (next !== "list") {
       calendar.current?.getApi().changeView(next);
       setTappedDate(null);
@@ -316,7 +336,7 @@ export function PlannerCalendar({
           <FullCalendar
             ref={calendar}
             plugins={plugins}
-            initialView="dayGridMonth"
+            initialView={view === "timeGridWeek" ? "timeGridWeek" : "dayGridMonth"}
             initialDate={
               today && today >= semester.start_date && today <= semester.end_date
                 ? today
