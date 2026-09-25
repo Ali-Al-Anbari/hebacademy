@@ -127,6 +127,42 @@ button:disabled:hover { transform: none; }
 .course-row:hover, .course-row:focus-within, .schedule-row:hover, .schedule-row:focus-within, .deck-card-row:hover, .deck-card-row:focus-within { background: var(--color-brand-100); }
 .course-row, .schedule-row, .deck-card-row { transition: background-color .16s ease; }
 
+/* Planner extends the pink workspace without enclosing the calendar in cards. */
+.planner-page { max-width: 88rem; }
+.planner-intro { padding-bottom: .8rem; }
+.planner-semester-bar { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 1rem 1.5rem; border-block: 1px solid #bd8f9e; padding-block: 1rem; }
+.planner-semester-select { min-width: min(20rem, calc(100vw - 2rem)); max-width: 100%; background: transparent; color: var(--color-ink); font-family: var(--font-display), sans-serif; font-size: 1.25rem; font-weight: 700; letter-spacing: -.025em; outline-offset: .2rem; }
+.planner-workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.75rem; align-items: start; }
+.planner-classes { min-width: 0; }
+.planner-text-action { min-height: 1.8rem; color: var(--color-brand-ink); font-weight: 650; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: .2rem; }
+.planner-text-action:hover, .planner-text-action:focus-visible { text-decoration-color: currentColor; }
+.planner-empty { border-block: 1px solid #bd8f9e; padding-block: 1.6rem; }
+.planner-calendar-wrap { min-width: 0; }
+.planner-calendar-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem 1.5rem; padding-bottom: 1rem; }
+.planner-calendar { min-width: 0; overflow-x: auto; border-top: 2px solid #ad7488; background: #fff8fa; }
+.planner-calendar .fc { --fc-classic-background: #fff8fa; --fc-classic-foreground: #2A2024; --fc-classic-muted-foreground: #70545e; --fc-classic-border: #dabac4; --fc-classic-today: #FFC2D160; --fc-classic-highlight: #FFB3C65c; --fc-classic-primary: #FB6F92; --fc-classic-primary-foreground: #2A2024; font-family: var(--font-body), sans-serif; font-size: .85rem; }
+.planner-calendar .fc-event { cursor: pointer; border-radius: .25rem; padding: 1px 3px; }
+.planner-calendar .fc-event:focus-visible { outline: 2px solid var(--color-brand-ink); outline-offset: 2px; }
+.planner-event-content { display: flex; min-width: 0; flex-direction: column; line-height: 1.2; }
+.planner-event-content strong, .planner-event-content span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.planner-event-content strong { font-weight: 700; }
+.planner-event-marker { display: inline-block; width: 5px; height: .75rem; margin-right: .3rem; border-radius: 2px; vertical-align: -.08rem; }
+.planner-event-content span { font-size: .74rem; }
+.planner-day-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: .2rem; }
+.planner-presence { display: inline-flex; min-width: 0; align-items: center; gap: 2px; }
+.planner-presence-dot { display: inline-block; width: 5px; height: 5px; flex: none; border-radius: 50%; }
+.planner-presence-more { color: var(--hc-muted); font-size: .55rem; }
+@media (min-width: 1024px) { .planner-workspace-grid { grid-template-columns: minmax(14rem, 17.5rem) minmax(0, 1fr); gap: 2rem; } }
+@media (max-width: 640px) {
+  .planner-semester-bar > div:last-child { width: 100%; }
+  .planner-semester-bar > div:last-child > div { gap: .4rem; }
+  .planner-semester-bar button { min-height: 2.5rem; font-size: .8rem; }
+  .planner-calendar:has(.fc-timegrid) .fc { min-width: 660px; }
+  .planner-calendar .fc { font-size: .75rem; }
+  .planner-calendar .fc-event { padding: 1px; }
+  .planner-presence-dot:nth-child(n+4), .planner-presence-more { display: none; }
+}
+
 :where(a, button, input, textarea, select, summary):focus-visible { outline: 2px solid var(--color-brand-ink); outline-offset: 2px; }
 :where(a, button, input, textarea):disabled { opacity: .58; }
 

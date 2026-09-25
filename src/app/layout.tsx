@@ -29,6 +29,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
             {signedIn && (
               <nav aria-label="Main navigation" className="flex items-center gap-0.5 sm:gap-1">
                 <Link href="/" className="app-nav-link">Dashboard</Link>
+                <Link href="/planner" className="app-nav-link">Planner</Link>
                 <Link href="/#study-schedules-title" className="app-nav-link">Study Schedules</Link>
                 <form action={signOut}>
                   <Button type="submit" variant="ghost" className="px-2 text-muted-foreground sm:px-4"><LogOut className="hidden sm:block" /> Sign out</Button>
