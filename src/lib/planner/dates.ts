@@ -45,6 +45,49 @@ export function isTimeZone(value: unknown): value is string {
   } catch { return false; }
 }
 
+export function nextCalendarDay(date: string): string {
+  return dateFromOrdinal(ordinal(date) + 86_400_000);
+}
+
+export function isValidHttpUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const trimmed = value.trim();
+  return /^https?:\/\/[^\s]+$/i.test(trimmed);
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export function formatCalendarDate(date: string): string {
+  const [year, month, day] = date.split("-").map(Number);
+  return `${MONTHS[month - 1]} ${day}, ${year}`;
+}
+
+export function formatShortDate(date: string): string {
+  const [, month, day] = date.split("-").map(Number);
+  return `${MONTHS[month - 1]} ${day}`;
+}
+
+export function formatDateRange(start: string | null, due: string): string {
+  if (!start || start === due) {
+    return formatCalendarDate(due);
+  }
+  const [startYear, startMonth, startDay] = start.split("-").map(Number);
+  const [dueYear, dueMonth, dueDay] = due.split("-").map(Number);
+  if (startYear === dueYear) {
+    if (startMonth === dueMonth) {
+      return `${MONTHS[startMonth - 1]} ${startDay} – ${dueDay}, ${dueYear}`;
+    }
+    return `${MONTHS[startMonth - 1]} ${startDay} – ${MONTHS[dueMonth - 1]} ${dueDay}, ${dueYear}`;
+  }
+  return `${MONTHS[startMonth - 1]} ${startDay}, ${startYear} – ${MONTHS[dueMonth - 1]} ${dueDay}, ${dueYear}`;
+}
+
+export function isAssignmentOverdue(dueDate: string, status: string, today: string | null): boolean {
+  if (!today || status === "done") return false;
+  return dueDate < today;
+}
+
+
 export type MeetingOccurrence = {
   id: string;
   meetingId: string;

@@ -139,15 +139,29 @@ button:disabled:hover { transform: none; }
 .planner-empty { border-block: 1px solid #bd8f9e; padding-block: 1.6rem; }
 .planner-calendar-wrap { min-width: 0; }
 .planner-calendar-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem 1.5rem; padding-bottom: 1rem; }
-.planner-calendar { min-width: 0; overflow-x: auto; border-top: 2px solid #ad7488; background: #fff8fa; }
-.planner-calendar .fc { --fc-classic-background: #fff8fa; --fc-classic-foreground: #2A2024; --fc-classic-muted-foreground: #70545e; --fc-classic-border: #dabac4; --fc-classic-today: #FFC2D160; --fc-classic-highlight: #FFB3C65c; --fc-classic-primary: #FB6F92; --fc-classic-primary-foreground: #2A2024; font-family: var(--font-body), sans-serif; font-size: .85rem; }
-.planner-calendar .fc-event { cursor: pointer; border-radius: .25rem; padding: 1px 3px; }
+.planner-calendar { min-width: 0; overflow-x: auto; border: 1px solid #d2aab7; border-radius: .75rem; background: #fff8fa; box-shadow: 0 2px 14px #23182006; }
+.planner-calendar .fc { --fc-classic-background: #fff8fa; --fc-classic-foreground: #2A2024; --fc-classic-muted-foreground: #70545e; --fc-classic-border: #dabac4; --fc-classic-today: #FFC2D155; --fc-classic-highlight: #FFB3C65c; --fc-classic-primary: #FB6F92; --fc-classic-primary-foreground: #2A2024; font-family: var(--font-body), sans-serif; font-size: .85rem; }
+.planner-calendar .fc-theme-classic th { background-color: #fdf1f5; border-color: #dabac4; color: var(--color-ink); font-weight: 650; padding: 6px 0; font-size: .8rem; }
+.planner-calendar .fc-theme-classic td { border-color: #e8d0d8; }
+.planner-calendar .fc-daygrid-day-number { color: var(--color-ink); font-weight: 600; padding: 3px 6px; }
+.planner-calendar .fc-col-header-cell-cushion { color: var(--color-ink); text-decoration: none; }
+.planner-calendar .fc-event { cursor: pointer; border-radius: .3rem; padding: 1px 3px; border-width: 1px; }
 .planner-calendar .fc-event:focus-visible { outline: 2px solid var(--color-brand-ink); outline-offset: 2px; }
 .planner-event-content { display: flex; min-width: 0; flex-direction: column; line-height: 1.2; }
 .planner-event-content strong, .planner-event-content span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .planner-event-content strong { font-weight: 700; }
 .planner-event-marker { display: inline-block; width: 5px; height: .75rem; margin-right: .3rem; border-radius: 2px; vertical-align: -.08rem; }
 .planner-event-content span { font-size: .74rem; }
+
+/* Distinct Assignment Pills */
+.planner-assignment-pill { display: inline-flex; align-items: center; gap: 4px; width: 100%; min-width: 0; padding: 2px 4px; border-radius: 4px; font-size: .78rem; line-height: 1.25; }
+.planner-assignment-pill--done { opacity: 0.62; }
+.planner-assignment-pill--done .planner-assignment-title { text-decoration: line-through; }
+.planner-assignment-dot { display: inline-block; width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; }
+.planner-assignment-bang { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; flex-shrink: 0; border-radius: 50%; background: #dc2626; color: #fff; font-size: 9px; font-weight: 800; line-height: 1; }
+.planner-assignment-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.planner-assignment-time { flex-shrink: 0; font-size: .7rem; opacity: .82; }
+
 .planner-day-heading { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: .2rem; }
 .planner-presence { display: inline-flex; min-width: 0; align-items: center; gap: 2px; }
 .planner-presence-dot { display: inline-block; width: 5px; height: 5px; flex: none; border-radius: 50%; }
