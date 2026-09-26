@@ -23,9 +23,11 @@ import {
   WEEKDAY_SHORT,
 } from "@/lib/planner/dates";
 import type {
+  AssignmentException,
   AssignmentSubtask,
   AssignmentUrl,
   CourseMeeting,
+  EffectiveAssignment,
   MeetingException,
   PlannerAssignment,
   PlannerCourse,
@@ -34,6 +36,7 @@ import type {
   PlannerWeeklyFocusItem,
   Semester,
 } from "@/lib/planner/types";
+import { resolveEffectiveAssignments } from "@/lib/planner/recurrence";
 import { toggleAssignmentStatus } from "./assignment-actions";
 import {
   createCourseNote,
@@ -50,14 +53,15 @@ type Props = {
   meetings?: CourseMeeting[];
   exceptions?: MeetingException[];
   customTypes: PlannerCustomType[];
-  assignments: PlannerAssignment[];
+  assignments: (PlannerAssignment | EffectiveAssignment)[];
+  assignmentExceptions?: AssignmentException[];
   courseNotes?: PlannerCourseNote[];
   weeklyFocusItems?: PlannerWeeklyFocusItem[];
   activeWeekStart?: string;
   urls?: AssignmentUrl[];
   subtasks?: AssignmentSubtask[];
   today: string;
-  onOpenAssignment: (assignment: PlannerAssignment) => void;
+  onOpenAssignment: (assignment: PlannerAssignment | EffectiveAssignment) => void;
   onAddAssignment: (initialDate?: string, initialCourseId?: string | null) => void;
   onTogglePinAssignment?: (assignmentId: string) => void;
   onStatusChanged: () => void;
@@ -69,9 +73,12 @@ export function AssignmentListView({
   meetings = [],
   exceptions = [],
   assignments,
+  assignmentExceptions = [],
   courseNotes = [],
   weeklyFocusItems = [],
   activeWeekStart,
+  urls = [],
+  subtasks = [],
   today,
   onOpenAssignment,
   onAddAssignment,
@@ -110,17 +117,30 @@ export function AssignmentListView({
     return set;
   }, [semester, courses, meetings, exceptions]);
 
+  // Resolve recurring virtual and materialized occurrences
+  const effectiveAssignments = useMemo(() => {
+    return resolveEffectiveAssignments({
+      assignments: assignments as PlannerAssignment[],
+      exceptions: assignmentExceptions,
+      semester,
+      rangeStart: semester.start_date,
+      rangeEnd: semester.end_date,
+      urls,
+      subtasks,
+    }).assignments;
+  }, [assignments, assignmentExceptions, semester, urls, subtasks]);
+
   // Index assignments by due_date and course_id
   const assignmentsByDateAndCourse = useMemo(() => {
-    const map = new Map<string, PlannerAssignment[]>();
-    for (const assignment of assignments) {
+    const map = new Map<string, (PlannerAssignment | EffectiveAssignment)[]>();
+    for (const assignment of effectiveAssignments) {
       const key = `${assignment.due_date}:${assignment.planner_course_id ?? "general"}`;
       const list = map.get(key) ?? [];
       list.push(assignment);
       map.set(key, list);
     }
     return map;
-  }, [assignments]);
+  }, [effectiveAssignments]);
 
   // Index course notes by `${note_date}:${planner_course_id}`
   const notesByDateAndCourse = useMemo(() => {
@@ -152,7 +172,7 @@ export function AssignmentListView({
         color?: string;
         meetsToday: boolean;
         isGeneral: boolean;
-        assignments: PlannerAssignment[];
+        assignments: (PlannerAssignment | EffectiveAssignment)[];
       }[];
     }[] = [];
 
@@ -175,7 +195,7 @@ export function AssignmentListView({
         color?: string;
         meetsToday: boolean;
         isGeneral: boolean;
-        assignments: PlannerAssignment[];
+        assignments: (PlannerAssignment | EffectiveAssignment)[];
       }[] = [];
 
       // Add regular course rows
@@ -269,11 +289,24 @@ export function AssignmentListView({
     today,
   ]);
 
-  async function handleToggleStatus(assignment: PlannerAssignment) {
+  async function handleToggleStatus(assignment: PlannerAssignment | EffectiveAssignment) {
     if (togglingId) return;
     setTogglingId(assignment.id);
     try {
-      await toggleAssignmentStatus(assignment.id, assignment.status);
+      const isVirt = "isVirtual" in assignment && Boolean(assignment.isVirtual);
+      const parentId =
+        "seriesRootId" in assignment && typeof assignment.seriesRootId === "string"
+          ? assignment.seriesRootId
+          : assignment.parent_series_id;
+      const origDate =
+        "originalOccurrenceDate" in assignment && typeof assignment.originalOccurrenceDate === "string"
+          ? assignment.originalOccurrenceDate
+          : assignment.original_due_date;
+      await toggleAssignmentStatus(
+        assignment.id,
+        assignment.status,
+        isVirt && parentId && origDate ? { parentSeriesId: parentId, originalDueDate: origDate } : undefined
+      );
       onStatusChanged();
     } catch (err) {
       console.error("Failed to toggle status:", err);
@@ -811,9 +844,14 @@ export function AssignmentListView({
                                 {/* Pin to Weekly Focus action */}
                                 {onTogglePinAssignment && activeWeekStart && (
                                   (() => {
-                                    const isPinnedInActiveWeek = weeklyFocusItems.some(
-                                      (w) => w.assignment_id === assignment.id && w.week_start === activeWeekStart
-                                    );
+                                    const targetRootId = ("seriesRootId" in assignment && assignment.seriesRootId) || assignment.parent_series_id || assignment.id;
+                                    const occurrenceDate = ("originalOccurrenceDate" in assignment && assignment.originalOccurrenceDate) || assignment.original_due_date || null;
+                                    const isPinnedInActiveWeek = weeklyFocusItems.some((w) => {
+                                      if (w.week_start !== activeWeekStart) return false;
+                                      if (w.assignment_id === assignment.id) return true;
+                                      if (w.assignment_id === targetRootId && (w.occurrence_date === occurrenceDate || !w.occurrence_date)) return true;
+                                      return false;
+                                    });
                                     return (
                                       <button
                                         type="button"

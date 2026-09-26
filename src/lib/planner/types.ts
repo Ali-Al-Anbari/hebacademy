@@ -94,6 +94,27 @@ export type AssignmentSubtask = {
   position: number;
 };
 
+export type PlannerAssignmentAttachment = {
+  id: string;
+  user_id?: string;
+  semester_id: string;
+  assignment_id: string;
+  storage_path: string;
+  file_name: string;
+  content_type: string;
+  byte_size: number;
+  created_at: string;
+  position?: number;
+};
+
+export type PlannerAssignmentAttachmentRef = {
+  user_id?: string;
+  semester_id: string;
+  assignment_id: string;
+  attachment_id: string;
+  position: number;
+};
+
 export type PlannerAssignment = {
   id: string;
   semester_id: string;
@@ -116,6 +137,33 @@ export type PlannerAssignment = {
   recurrence_until: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export const RECURRENCE_KINDS = [
+  "none",
+  "daily",
+  "selected_weekdays",
+  "weekly",
+  "every_x_weeks",
+  "monthly",
+] as const;
+export type RecurrenceKind = (typeof RECURRENCE_KINDS)[number];
+
+export const RECURRENCE_END_KINDS = [
+  "none",
+  "semester_end",
+  "date",
+  "never",
+] as const;
+export type RecurrenceEndKind = (typeof RECURRENCE_END_KINDS)[number];
+
+export type AssignmentException = {
+  id: string;
+  semester_id: string;
+  parent_series_id: string;
+  original_due_date: string;
+  kind: "cancelled";
+  created_at: string;
 };
 
 export type AssignmentUrlDraft = {
@@ -144,8 +192,25 @@ export type AssignmentDraft = {
   status: AssignmentStatus;
   priority: AssignmentPriority;
   description: string | null;
+  recurrence_kind?: RecurrenceKind;
+  recurrence_interval?: number;
+  recurrence_weekdays?: number[] | null;
+  recurrence_end_kind?: RecurrenceEndKind;
+  recurrence_until?: string | null;
   urls: AssignmentUrlDraft[];
   subtasks: AssignmentSubtaskDraft[];
+};
+
+export type EffectiveAssignment = PlannerAssignment & {
+  isVirtual?: boolean;
+  isOccurrence?: boolean;
+  seriesRootId?: string;
+  originalOccurrenceDate?: string;
+  virtualOccurrenceDate?: string;
+  originalDueDate?: string;
+  urls?: AssignmentUrl[];
+  subtasks?: AssignmentSubtask[];
+  attachments?: PlannerAssignmentAttachment[];
 };
 
 export type PlannerCourseNote = {

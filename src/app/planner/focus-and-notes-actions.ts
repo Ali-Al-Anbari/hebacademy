@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isDateOnly, weekdayOf } from "@/lib/planner/dates";
+import { parseVirtualAssignmentId } from "@/lib/planner/recurrence";
 import type { PlannerCourseNote, PlannerWeeklyFocusItem } from "@/lib/planner/types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -281,12 +282,18 @@ export async function pinAssignmentToFocus({
   semesterId,
   weekStart,
   assignmentId,
+  occurrenceDate,
 }: {
   semesterId: string;
   weekStart: string;
   assignmentId: string;
+  occurrenceDate?: string | null;
 }): Promise<{ error: string | null; item: PlannerWeeklyFocusItem | null }> {
-  const context = await ownedAssignment(semesterId, assignmentId);
+  const parsed = parseVirtualAssignmentId(assignmentId);
+  const realAssignmentId = parsed ? parsed.rootId : assignmentId;
+  const realOccurrenceDate = occurrenceDate ?? (parsed ? parsed.occurrenceDate : null);
+
+  const context = await ownedAssignment(semesterId, realAssignmentId);
   if (!context) {
     return { error: "Assignment could not be verified.", item: null };
   }
@@ -295,14 +302,21 @@ export async function pinAssignmentToFocus({
   }
 
   // Check if already pinned for this week
-  const { data: existing } = await context.supabase
+  let existingQuery = context.supabase
     .from("planner_weekly_focus_items")
     .select("id, semester_id, week_start, position, title, is_done, assignment_id, occurrence_date, created_at, updated_at")
     .eq("user_id", context.userId)
     .eq("semester_id", semesterId)
     .eq("week_start", weekStart)
-    .eq("assignment_id", assignmentId)
-    .maybeSingle();
+    .eq("assignment_id", realAssignmentId);
+
+  if (realOccurrenceDate) {
+    existingQuery = existingQuery.eq("occurrence_date", realOccurrenceDate);
+  } else {
+    existingQuery = existingQuery.is("occurrence_date", null);
+  }
+
+  const { data: existing } = await existingQuery.maybeSingle();
 
   if (existing) {
     return { error: null, item: existing as PlannerWeeklyFocusItem };
@@ -331,8 +345,8 @@ export async function pinAssignmentToFocus({
       position: nextPos,
       title: null,
       is_done: false,
-      assignment_id: assignmentId,
-      occurrence_date: null,
+      assignment_id: realAssignmentId,
+      occurrence_date: realOccurrenceDate,
     })
     .select("id, semester_id, week_start, position, title, is_done, assignment_id, occurrence_date, created_at, updated_at")
     .single();

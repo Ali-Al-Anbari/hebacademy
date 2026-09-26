@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { ArrowDown, ArrowUp, ImageIcon, MoreHorizontal, Pencil, Star, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Eye, ImageIcon, MoreHorizontal, Pencil, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -22,6 +22,72 @@ type Card = {
   answer_image_url: string | null;
   is_starred: boolean;
 };
+
+function DeckCardAnswer({
+  answer,
+  imageUrl,
+  hasImagePath,
+}: {
+  answer: string;
+  imageUrl: string | null;
+  hasImagePath: boolean;
+}) {
+  const [revealed, setRevealed] = useState(false);
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={revealed ? "Hide answer" : "Reveal answer"}
+      onClick={() => setRevealed((prev) => !prev)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setRevealed((prev) => !prev);
+        }
+      }}
+      className="group relative mt-3 block cursor-pointer rounded-lg p-2.5 -ml-2.5 transition-colors hover:bg-black/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/70"
+    >
+      <div
+        className={`transition-all duration-200 ${
+          revealed
+            ? "blur-none select-auto opacity-100"
+            : "blur-[6px] select-none opacity-60 group-hover:blur-none group-hover:select-auto group-hover:opacity-100 group-focus-within:blur-none group-focus-within:select-auto group-focus-within:opacity-100"
+        }`}
+      >
+        <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">
+          {answer}
+        </p>
+        {imageUrl && (
+          <div className="mt-3">
+            <Image
+              unoptimized
+              src={imageUrl}
+              alt="Answer illustration"
+              width={64}
+              height={64}
+              className="size-16 rounded-md bg-muted object-cover"
+            />
+          </div>
+        )}
+        {hasImagePath && !imageUrl && (
+          <div className="mt-3">
+            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <ImageIcon className="size-3" /> Answer image
+            </span>
+          </div>
+        )}
+      </div>
+
+      {!revealed && (
+        <span className="pointer-events-none absolute inset-x-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center gap-1.5 text-xs font-medium text-ink/75 bg-white/90 backdrop-blur-xs py-1 px-2.5 rounded-full border border-border/80 shadow-2xs w-fit mx-auto opacity-90 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+          <Eye className="size-3.5 text-muted-foreground" />
+          <span>Reveal answer</span>
+        </span>
+      )}
+    </div>
+  );
+}
 
 export function CardManager({ courseId, deckId, userId, cards }: {
   courseId: string;
@@ -157,9 +223,21 @@ export function CardManager({ courseId, deckId, userId, cards }: {
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-muted-foreground">Card {index + 1}</p>
               <div className="mt-2 flex flex-wrap items-center gap-2"><h3 className="whitespace-pre-wrap break-words text-base font-semibold leading-snug">{card.prompt}</h3>{card.is_starred && <span className="inline-flex items-center gap-1 text-xs font-semibold text-brand-ink"><Star className="size-3 fill-current" /> Starred</span>}</div>
-              <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-relaxed text-muted-foreground">{card.answer}</p>
-              {(card.prompt_image_url || card.answer_image_url) && <div className="mt-3 flex gap-2">{card.prompt_image_url && <Image unoptimized src={card.prompt_image_url} alt="Prompt illustration" width={64} height={64} className="size-16 rounded-md bg-muted object-cover" />}{card.answer_image_url && <Image unoptimized src={card.answer_image_url} alt="Answer illustration" width={64} height={64} className="size-16 rounded-md bg-muted object-cover" />}</div>}
-              {(card.prompt_image_path || card.answer_image_path) && <div className="mt-3 flex flex-wrap gap-3">{card.prompt_image_path && <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><ImageIcon className="size-3" /> Prompt image</span>}{card.answer_image_path && <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><ImageIcon className="size-3" /> Answer image</span>}</div>}
+              {card.prompt_image_url && (
+                <div className="mt-3">
+                  <Image unoptimized src={card.prompt_image_url} alt="Prompt illustration" width={64} height={64} className="size-16 rounded-md bg-muted object-cover" />
+                </div>
+              )}
+              {card.prompt_image_path && !card.prompt_image_url && (
+                <div className="mt-3">
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><ImageIcon className="size-3" /> Prompt image</span>
+                </div>
+              )}
+              <DeckCardAnswer
+                answer={card.answer}
+                imageUrl={card.answer_image_url}
+                hasImagePath={Boolean(card.answer_image_path)}
+              />
             </div>
             <div className="flex shrink-0 items-center gap-1"><Button type="button" variant="ghost" size="icon" disabled={Boolean(busyId)} onClick={() => changeStar(card)} aria-label={card.is_starred ? "Unstar card" : "Star card"} aria-pressed={card.is_starred} className={card.is_starred ? "text-brand-ink" : "text-muted-foreground"}><Star className={card.is_starred ? "fill-current" : ""} /></Button><DropdownMenu><DropdownMenuTrigger render={<Button variant="ghost" size="icon" disabled={Boolean(busyId)} aria-label={`Manage card ${index + 1}`} />}><MoreHorizontal /></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-44"><DropdownMenuItem onClick={() => { setAdding(false); setEditingId(card.id); setMessage(""); }}><Pencil /> Edit card</DropdownMenuItem><DropdownMenuItem disabled={index === 0} onClick={() => move(card, "up")}><ArrowUp /> Move up</DropdownMenuItem><DropdownMenuItem disabled={index === cards.length - 1} onClick={() => move(card, "down")}><ArrowDown /> Move down</DropdownMenuItem><DropdownMenuItem variant="destructive" onClick={() => setDeleting(card)}><Trash2 /> Delete card</DropdownMenuItem></DropdownMenuContent></DropdownMenu></div>
           </div>

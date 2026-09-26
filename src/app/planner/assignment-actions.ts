@@ -39,7 +39,7 @@ async function ownedAssignment(assignmentId: string) {
   if (!isId(assignmentId)) return null;
   const { data, error } = await context.supabase
     .from("planner_assignments")
-    .select("id, semester_id, planner_course_id, status")
+    .select("id, semester_id, planner_course_id, status, parent_series_id")
     .eq("id", assignmentId)
     .eq("user_id", context.userId)
     .maybeSingle();
@@ -156,6 +156,42 @@ function validateAssignmentDraft(input: AssignmentDraft) {
     }
   }
 
+  // Recurrence validation
+  const recurrenceKind = input.recurrence_kind || "none";
+  if (!["none", "daily", "selected_weekdays", "weekly", "every_x_weeks", "monthly"].includes(recurrenceKind)) {
+    return "Invalid recurrence type.";
+  }
+
+  if (recurrenceKind !== "none") {
+    const endKind = input.recurrence_end_kind || "semester_end";
+    if (!["semester_end", "date", "never"].includes(endKind)) {
+      return "Invalid recurrence end condition.";
+    }
+    if (endKind === "date") {
+      if (!input.recurrence_until || !isDateOnly(input.recurrence_until)) {
+        return "A valid end date is required for date-based recurrence.";
+      }
+      if (input.recurrence_until < input.due_date) {
+        return "Recurrence end date must be on or after the initial due date.";
+      }
+    }
+    if (recurrenceKind === "selected_weekdays") {
+      if (!Array.isArray(input.recurrence_weekdays) || input.recurrence_weekdays.length === 0) {
+        return "Select at least one weekday for recurrence.";
+      }
+      for (const w of input.recurrence_weekdays) {
+        if (typeof w !== "number" || w < 1 || w > 7) {
+          return "Invalid weekday in recurrence.";
+        }
+      }
+    }
+    if (recurrenceKind === "every_x_weeks") {
+      if (typeof input.recurrence_interval !== "number" || input.recurrence_interval < 1) {
+        return "Interval must be 1 or greater.";
+      }
+    }
+  }
+
   return null;
 }
 
@@ -202,6 +238,16 @@ export async function saveAssignment(
     }
   }
 
+  const recurrenceKind = input.recurrence_kind || "none";
+  const recurrenceEndKind = recurrenceKind === "none" ? "none" : (input.recurrence_end_kind || "semester_end");
+  const recurrenceUntil = recurrenceEndKind === "date" ? input.recurrence_until || null : null;
+  const recurrenceInterval = recurrenceKind === "every_x_weeks"
+    ? Math.max(1, input.recurrence_interval || 1)
+    : 1;
+  const recurrenceWeekdays = recurrenceKind === "selected_weekdays" && Array.isArray(input.recurrence_weekdays)
+    ? [...new Set(input.recurrence_weekdays.filter((w) => w >= 1 && w <= 7))].sort((a, b) => a - b)
+    : null;
+
   const assignmentValues = {
     semester_id: semesterId,
     planner_course_id: input.planner_course_id,
@@ -216,11 +262,11 @@ export async function saveAssignment(
     custom_type_id: input.type_kind === "custom" ? input.custom_type_id : null,
     status: input.status,
     priority: input.priority,
-    recurrence_kind: "none",
-    recurrence_interval: 1,
-    recurrence_weekdays: null,
-    recurrence_end_kind: "none",
-    recurrence_until: null,
+    recurrence_kind: recurrenceKind,
+    recurrence_interval: recurrenceInterval,
+    recurrence_weekdays: recurrenceWeekdays,
+    recurrence_end_kind: recurrenceEndKind,
+    recurrence_until: recurrenceUntil,
     updated_at: new Date().toISOString(),
   };
 
@@ -268,97 +314,129 @@ export async function saveAssignment(
     return { error: "Unexpected missing assignment ID.", id: null };
   }
 
-  // Sync URLs
-  try {
-    const urlsToInsert = (input.urls || []).map((link, idx) => ({
-      id: isId(link.id) ? link.id : crypto.randomUUID(),
-      user_id: userId,
-      semester_id: semesterId,
-      assignment_id: targetId,
-      url: link.url.trim(),
-      label: link.label?.trim() || null,
-      position: idx,
-    }));
+  // Sync URLs and subtasks
+  const syncRes = await syncAssignmentUrlsAndSubtasks({
+    supabase,
+    userId,
+    semesterId,
+    assignmentId: targetId,
+    urls: input.urls,
+    subtasks: input.subtasks,
+  });
 
-    // Delete existing URLs for this assignment
-    const { error: delUrlError } = await supabase
-      .from("planner_assignment_urls")
-      .delete()
-      .eq("assignment_id", targetId)
-      .eq("user_id", userId);
-
-    if (delUrlError) {
-      console.error("Could not clear old URLs:", delUrlError);
-      throw delUrlError;
-    }
-
-    if (urlsToInsert.length > 0) {
-      const { error: insUrlError } = await supabase
-        .from("planner_assignment_urls")
-        .insert(urlsToInsert);
-
-      if (insUrlError) {
-        console.error("Could not insert URLs:", insUrlError);
-        throw insUrlError;
-      }
-    }
-  } catch (urlErr) {
-    console.error("Failed to save assignment URLs:", urlErr);
+  if (syncRes.error) {
     revalidatePath("/planner");
-    return {
-      error: "The assignment was saved, but some URLs could not be updated. Please review them.",
-      id: targetId,
-    };
-  }
-
-  // Sync Subtasks
-  try {
-    const subtasksToInsert = (input.subtasks || []).map((task, idx) => ({
-      id: isId(task.id) ? task.id : crypto.randomUUID(),
-      user_id: userId,
-      semester_id: semesterId,
-      assignment_id: targetId,
-      title: task.title.trim(),
-      is_done: Boolean(task.is_done),
-      due_date: task.due_date && isDateOnly(task.due_date) ? task.due_date : null,
-      position: idx,
-      updated_at: new Date().toISOString(),
-    }));
-
-    // Delete existing subtasks for this assignment
-    const { error: delSubError } = await supabase
-      .from("planner_assignment_subtasks")
-      .delete()
-      .eq("assignment_id", targetId)
-      .eq("user_id", userId);
-
-    if (delSubError) {
-      console.error("Could not clear old subtasks:", delSubError);
-      throw delSubError;
-    }
-
-    if (subtasksToInsert.length > 0) {
-      const { error: insSubError } = await supabase
-        .from("planner_assignment_subtasks")
-        .insert(subtasksToInsert);
-
-      if (insSubError) {
-        console.error("Could not insert subtasks:", insSubError);
-        throw insSubError;
-      }
-    }
-  } catch (subErr) {
-    console.error("Failed to save assignment subtasks:", subErr);
-    revalidatePath("/planner");
-    return {
-      error: "The assignment was saved, but some subtasks could not be updated. Please review them.",
-      id: targetId,
-    };
+    return { error: syncRes.error, id: targetId };
   }
 
   revalidatePath("/planner");
   revalidatePath("/");
   return { error: null, id: targetId };
+}
+
+async function syncAssignmentUrlsAndSubtasks({
+  supabase,
+  userId,
+  semesterId,
+  assignmentId,
+  urls,
+  subtasks,
+}: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any;
+  userId: string;
+  semesterId: string;
+  assignmentId: string;
+  urls?: AssignmentDraft["urls"];
+  subtasks?: AssignmentDraft["subtasks"];
+}): Promise<{ error: string | null }> {
+  // Sync URLs
+  if (urls !== undefined) {
+    try {
+      const urlsToInsert = (urls || []).map((link, idx) => ({
+        id: isId(link.id) ? link.id : crypto.randomUUID(),
+        user_id: userId,
+        semester_id: semesterId,
+        assignment_id: assignmentId,
+        url: link.url.trim(),
+        label: link.label?.trim() || null,
+        position: idx,
+      }));
+
+      const { error: delUrlError } = await supabase
+        .from("planner_assignment_urls")
+        .delete()
+        .eq("assignment_id", assignmentId)
+        .eq("user_id", userId);
+
+      if (delUrlError) {
+        console.error("Could not clear old URLs:", delUrlError);
+        throw delUrlError;
+      }
+
+      if (urlsToInsert.length > 0) {
+        const { error: insUrlError } = await supabase
+          .from("planner_assignment_urls")
+          .insert(urlsToInsert);
+
+        if (insUrlError) {
+          console.error("Could not insert URLs:", insUrlError);
+          throw insUrlError;
+        }
+      }
+    } catch (urlErr) {
+      console.error("Failed to save assignment URLs:", urlErr);
+      return {
+        error: "The assignment was saved, but some URLs could not be updated. Please review them.",
+      };
+    }
+  }
+
+  // Sync Subtasks
+  if (subtasks !== undefined) {
+    try {
+      const subtasksToInsert = (subtasks || []).map((task, idx) => ({
+        id: isId(task.id) ? task.id : crypto.randomUUID(),
+        user_id: userId,
+        semester_id: semesterId,
+        assignment_id: assignmentId,
+        title: task.title.trim(),
+        is_done: Boolean(task.is_done),
+        due_date: task.due_date && isDateOnly(task.due_date) ? task.due_date : null,
+        position: idx,
+        updated_at: new Date().toISOString(),
+      }));
+
+      const { error: delSubError } = await supabase
+        .from("planner_assignment_subtasks")
+        .delete()
+        .eq("assignment_id", assignmentId)
+        .eq("user_id", userId);
+
+      if (delSubError) {
+        console.error("Could not clear old subtasks:", delSubError);
+        throw delSubError;
+      }
+
+      if (subtasksToInsert.length > 0) {
+        const { error: insSubError } = await supabase
+          .from("planner_assignment_subtasks")
+          .insert(subtasksToInsert);
+
+        if (insSubError) {
+          console.error("Could not insert subtasks:", insSubError);
+          throw insSubError;
+        }
+      }
+    } catch (subErr) {
+      console.error("Failed to save assignment subtasks:", subErr);
+      return {
+        error: "The assignment was saved, but some subtasks could not be updated. Please review them.",
+      };
+    }
+  }
+
+  return { error: null };
 }
 
 export async function deleteAssignment(id: string): Promise<{ error: string | null }> {
@@ -378,6 +456,9 @@ export async function deleteAssignment(id: string): Promise<{ error: string | nu
     return { error: "Could not delete the assignment. Please try again." };
   }
 
+  // Opportunistically clean up queued storage objects for unreferenced attachments
+  void processPlannerAttachmentCleanup(context.supabase, context.userId);
+
   revalidatePath("/planner");
   revalidatePath("/");
   return { error: null };
@@ -385,12 +466,24 @@ export async function deleteAssignment(id: string): Promise<{ error: string | nu
 
 export async function toggleAssignmentStatus(
   id: string,
-  currentStatus: AssignmentStatus
+  currentStatus: AssignmentStatus,
+  virtualContext?: { parentSeriesId: string; originalDueDate: string }
 ): Promise<{ error: string | null; status: AssignmentStatus | null }> {
+  const nextStatus: AssignmentStatus = currentStatus === "done" ? "not_started" : "done";
+
+  if (virtualContext) {
+    const result = await materializeOccurrenceAction({
+      seriesId: virtualContext.parentSeriesId,
+      originalDueDate: virtualContext.originalDueDate,
+      updates: { status: nextStatus },
+    });
+    if (result.error) return { error: result.error, status: null };
+    return { error: null, status: nextStatus };
+  }
+
   const context = await ownedAssignment(id);
   if (!context) return { error: "This assignment is unavailable.", status: null };
 
-  const nextStatus: AssignmentStatus = currentStatus === "done" ? "not_started" : "done";
   const { data, error } = await context.supabase
     .from("planner_assignments")
     .update({
@@ -441,4 +534,576 @@ export async function toggleSubtask(
   revalidatePath("/planner");
   revalidatePath("/");
   return { error: null, is_done: data.is_done };
+}
+
+export async function materializeOccurrenceAction({
+  seriesId,
+  originalDueDate,
+  updates,
+}: {
+  seriesId: string;
+  originalDueDate: string;
+  updates: Partial<AssignmentDraft>;
+}): Promise<{ error: string | null; id: string | null }> {
+  const context = await authenticated();
+  if (!isId(seriesId) || !isDateOnly(originalDueDate)) {
+    return { error: "Invalid occurrence parameters.", id: null };
+  }
+
+  const payload: Record<string, unknown> = {};
+  if ("title" in updates) payload.title = updates.title ?? null;
+  if ("description" in updates) payload.description = updates.description ?? null;
+  if ("planner_course_id" in updates) payload.planner_course_id = updates.planner_course_id ?? null;
+  if ("start_date" in updates) payload.start_date = updates.start_date ?? null;
+  if ("due_date" in updates) payload.due_date = updates.due_date ?? null;
+  if ("due_time" in updates) payload.due_time = updates.due_time ? updates.due_time.slice(0, 5) : null;
+  if ("type_kind" in updates) payload.type_kind = updates.type_kind ?? null;
+  if ("custom_type_id" in updates) payload.custom_type_id = updates.custom_type_id ?? null;
+  if ("status" in updates) payload.status = updates.status ?? null;
+  if ("priority" in updates) payload.priority = updates.priority ?? null;
+
+  if ("urls" in updates) payload.urls = updates.urls ?? null;
+  if ("subtasks" in updates) payload.subtasks = updates.subtasks ?? null;
+
+  // Transactional RPC execution
+  const rpcRes = await context.supabase.rpc("materialize_recurring_assignment_occurrence", {
+    p_series_id: seriesId,
+    p_original_due_date: originalDueDate,
+    p_updates: payload,
+  });
+
+  if (rpcRes.error) {
+    console.error("materialize_recurring_assignment_occurrence RPC error:", rpcRes.error);
+    const code = rpcRes.error.code;
+    const msg = rpcRes.error.message || "";
+    if (code === "PGRST202" || code === "42883" || msg.includes("function") || msg.includes("not found")) {
+      return {
+        error: "Database migration required. Please apply the recurring assignments migration to Supabase.",
+        id: null,
+      };
+    }
+    return {
+      error: rpcRes.error.message || "Could not materialize occurrence.",
+      id: null,
+    };
+  }
+
+  const materializedId = rpcRes.data as string;
+
+  revalidatePath("/planner");
+  revalidatePath("/");
+  return { error: null, id: materializedId };
+}
+
+export async function splitSeriesAction({
+  seriesId,
+  splitDate,
+  updates,
+}: {
+  seriesId: string;
+  splitDate: string;
+  updates: Partial<AssignmentDraft>;
+}): Promise<{ error: string | null; id: string | null }> {
+  const context = await authenticated();
+  if (!isId(seriesId) || !isDateOnly(splitDate)) {
+    return { error: "Invalid split parameters.", id: null };
+  }
+
+  const payload: Record<string, unknown> = {};
+  if ("title" in updates) payload.title = updates.title ?? null;
+  if ("description" in updates) payload.description = updates.description ?? null;
+  if ("planner_course_id" in updates) payload.planner_course_id = updates.planner_course_id ?? null;
+  if ("start_date" in updates) payload.start_date = updates.start_date ?? null;
+  if ("due_date" in updates) payload.due_date = updates.due_date ?? null;
+  if ("due_time" in updates) payload.due_time = updates.due_time ? updates.due_time.slice(0, 5) : null;
+  if ("type_kind" in updates) payload.type_kind = updates.type_kind ?? null;
+  if ("custom_type_id" in updates) payload.custom_type_id = updates.custom_type_id ?? null;
+  if ("status" in updates) payload.status = updates.status ?? null;
+  if ("priority" in updates) payload.priority = updates.priority ?? null;
+  if ("recurrence_kind" in updates) payload.recurrence_kind = updates.recurrence_kind ?? null;
+  if ("recurrence_interval" in updates) {
+    const kind = updates.recurrence_kind ?? "every_x_weeks";
+    payload.recurrence_interval = kind === "every_x_weeks" ? Math.max(1, updates.recurrence_interval || 1) : 1;
+  }
+  if ("recurrence_weekdays" in updates) payload.recurrence_weekdays = updates.recurrence_weekdays ?? null;
+  if ("recurrence_end_kind" in updates) payload.recurrence_end_kind = updates.recurrence_end_kind ?? null;
+  if ("recurrence_until" in updates) payload.recurrence_until = updates.recurrence_until ?? null;
+  if ("urls" in updates) payload.urls = updates.urls ?? null;
+  if ("subtasks" in updates) payload.subtasks = updates.subtasks ?? null;
+
+  // Transactional RPC execution
+  const rpcRes = await context.supabase.rpc("split_recurring_assignment_series", {
+    p_series_id: seriesId,
+    p_split_date: splitDate,
+    p_updates: payload,
+  });
+
+  if (rpcRes.error) {
+    console.error("split_recurring_assignment_series RPC error:", rpcRes.error);
+    const code = rpcRes.error.code;
+    const msg = rpcRes.error.message || "";
+    if (code === "PGRST202" || code === "42883" || msg.includes("function") || msg.includes("not found")) {
+      return {
+        error: "Database migration required. Please apply the recurring assignments migration to Supabase.",
+        id: null,
+      };
+    }
+    return {
+      error: rpcRes.error.message || "Could not split series.",
+      id: null,
+    };
+  }
+
+  const targetSeriesId = rpcRes.data as string;
+
+  revalidatePath("/planner");
+  revalidatePath("/");
+  return { error: null, id: targetSeriesId };
+}
+
+export async function updateEntireSeriesAction({
+  seriesId,
+  updates,
+}: {
+  seriesId: string;
+  semesterId?: string;
+  updates: AssignmentDraft;
+}): Promise<{ error: string | null; id: string | null }> {
+  const invalid = validateAssignmentDraft(updates);
+  if (invalid) return { error: invalid, id: null };
+
+  const context = await authenticated();
+  if (!isId(seriesId)) {
+    return { error: "Invalid series ID.", id: null };
+  }
+
+  const payload: Record<string, unknown> = {
+    title: updates.title.trim(),
+    description: updates.description?.trim() || null,
+    planner_course_id: updates.planner_course_id,
+    start_date: updates.start_date || null,
+    due_date: updates.due_date,
+    due_time: updates.due_time ? updates.due_time.slice(0, 5) : null,
+    type_kind: updates.type_kind,
+    custom_type_id: updates.type_kind === "custom" ? updates.custom_type_id : null,
+    priority: updates.priority,
+    recurrence_kind: updates.recurrence_kind,
+    recurrence_interval: updates.recurrence_interval,
+    recurrence_weekdays: updates.recurrence_weekdays,
+    recurrence_end_kind: updates.recurrence_end_kind,
+    recurrence_until: updates.recurrence_until,
+    urls: updates.urls,
+    subtasks: updates.subtasks,
+  };
+
+  // Transactional RPC execution
+  const rpcRes = await context.supabase.rpc("update_recurring_assignment_series", {
+    p_series_id: seriesId,
+    p_updates: payload,
+  });
+
+  if (rpcRes.error) {
+    console.error("update_recurring_assignment_series RPC error:", rpcRes.error);
+    const code = rpcRes.error.code;
+    const msg = rpcRes.error.message || "";
+    if (code === "PGRST202" || code === "42883" || msg.includes("function") || msg.includes("not found")) {
+      return {
+        error: "Database migration required. Please apply the recurring assignments stabilization migration to Supabase.",
+        id: null,
+      };
+    }
+    return {
+      error: rpcRes.error.message || "Could not update recurring series.",
+      id: null,
+    };
+  }
+
+  revalidatePath("/planner");
+  revalidatePath("/");
+  return { error: null, id: rpcRes.data as string };
+}
+
+export async function cancelOccurrenceAction({
+  seriesId,
+  originalDueDate,
+}: {
+  seriesId: string;
+  originalDueDate: string;
+}): Promise<{ error: string | null }> {
+  const context = await authenticated();
+  if (!isId(seriesId) || !isDateOnly(originalDueDate)) {
+    return { error: "Invalid occurrence parameters." };
+  }
+
+  // Transactional RPC execution
+  const rpcRes = await context.supabase.rpc("cancel_recurring_assignment_occurrence", {
+    p_series_id: seriesId,
+    p_original_due_date: originalDueDate,
+  });
+
+  if (rpcRes.error) {
+    console.error("cancel_recurring_assignment_occurrence RPC error:", rpcRes.error);
+    const code = rpcRes.error.code;
+    const msg = rpcRes.error.message || "";
+    if (code === "PGRST202" || code === "42883" || msg.includes("function") || msg.includes("not found")) {
+      return {
+        error: "Database migration required. Please apply the recurring assignments migration to Supabase.",
+      };
+    }
+    return {
+      error: rpcRes.error.message || "Could not cancel occurrence.",
+    };
+  }
+
+  revalidatePath("/planner");
+  revalidatePath("/");
+  return { error: null };
+}
+
+export async function rescheduleAssignmentAction({
+  id,
+  isVirtual,
+  parentSeriesId,
+  originalDueDate,
+  dueDate,
+  startDate,
+}: {
+  id: string;
+  isVirtual?: boolean;
+  parentSeriesId?: string | null;
+  originalDueDate?: string | null;
+  dueDate: string;
+  startDate?: string | null;
+}): Promise<{ error: string | null }> {
+  if (!isDateOnly(dueDate)) {
+    return { error: "Invalid due date." };
+  }
+
+  if (isVirtual && parentSeriesId && originalDueDate) {
+    const res = await materializeOccurrenceAction({
+      seriesId: parentSeriesId,
+      originalDueDate,
+      updates: {
+        due_date: dueDate,
+        start_date: startDate || null,
+      },
+    });
+    return { error: res.error };
+  }
+
+  const context = await ownedAssignment(id);
+  if (!context) return { error: "This assignment is unavailable." };
+
+  const { error } = await context.supabase
+    .from("planner_assignments")
+    .update({
+      due_date: dueDate,
+      start_date: startDate || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("user_id", context.userId);
+
+  if (error) {
+    console.error("Could not reschedule assignment:", error);
+    return { error: "Could not reschedule assignment." };
+  }
+
+  revalidatePath("/planner");
+  revalidatePath("/");
+  return { error: null };
+}
+
+// ==============================================================================
+// Planner Attachments
+// ==============================================================================
+
+const MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024; // 20 MB
+
+const ALLOWED_MIME_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+]);
+
+const EXTENSION_TO_MIME: Record<string, string> = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  csv: "text/csv",
+};
+
+const BLOCKED_EXTENSIONS = new Set([
+  "exe", "bat", "cmd", "sh", "bash", "ps1", "vbs", "js", "mjs", "cjs", "ts", "tsx", "jsx",
+  "py", "rb", "php", "pl", "cgi", "jar", "war", "ear", "msi", "dll", "com", "scr", "hta",
+  "html", "htm", "xhtml", "svg", "xml"
+]);
+
+export async function validateAttachmentFile({
+  name,
+  size,
+  type,
+}: {
+  name: string;
+  size: number;
+  type?: string;
+}): Promise<{ error: string | null; canonicalMime: string | null }> {
+  if (!name || !name.trim()) {
+    return { error: "File name is required.", canonicalMime: null };
+  }
+  if (size <= 0) {
+    return { error: "File cannot be empty.", canonicalMime: null };
+  }
+  if (size > MAX_ATTACHMENT_SIZE) {
+    return { error: "File exceeds the 20 MB size limit.", canonicalMime: null };
+  }
+
+  const parts = name.split(".");
+  if (parts.length < 2) {
+    return { error: "File must have a valid extension.", canonicalMime: null };
+  }
+  const ext = parts.pop()!.toLowerCase().trim();
+
+  if (BLOCKED_EXTENSIONS.has(ext)) {
+    return { error: "Executable and script files are not allowed.", canonicalMime: null };
+  }
+
+  const expectedMime = EXTENSION_TO_MIME[ext];
+  if (!expectedMime || !ALLOWED_MIME_TYPES.has(expectedMime)) {
+    return {
+      error: "Unsupported file type. Allowed: PDF, images (JPG/PNG/WebP), Word, PowerPoint, Excel, CSV.",
+      canonicalMime: null,
+    };
+  }
+
+  if (type && type !== "application/octet-stream" && type !== "") {
+    if (type !== expectedMime && !ALLOWED_MIME_TYPES.has(type)) {
+      return {
+        error: "File content type does not match its extension.",
+        canonicalMime: null,
+      };
+    }
+  }
+
+  return { error: null, canonicalMime: expectedMime };
+}
+
+export async function registerAttachmentAction({
+  assignmentId,
+  fileName,
+  contentType,
+  byteSize,
+}: {
+  assignmentId: string;
+  fileName: string;
+  contentType: string;
+  byteSize: number;
+}): Promise<{
+  error: string | null;
+  data: {
+    id: string;
+    assignment_id: string;
+    semester_id: string;
+    storage_path: string;
+    file_name: string;
+    content_type: string;
+    byte_size: number;
+    position: number;
+  } | null;
+}> {
+  const context = await authenticated();
+  if (!isId(assignmentId)) {
+    return { error: "Invalid assignment ID.", data: null };
+  }
+
+  const validation = await validateAttachmentFile({
+    name: fileName,
+    size: byteSize,
+    type: contentType,
+  });
+  if (validation.error || !validation.canonicalMime) {
+    return { error: validation.error ?? "Invalid file.", data: null };
+  }
+
+  const owned = await ownedAssignment(assignmentId);
+  if (!owned) {
+    return { error: "Assignment not found or access denied.", data: null };
+  }
+
+  const rpcRes = await context.supabase.rpc("register_planner_assignment_attachment", {
+    p_assignment_id: assignmentId,
+    p_file_name: fileName.trim(),
+    p_content_type: validation.canonicalMime,
+    p_byte_size: byteSize,
+  });
+
+  if (rpcRes.error) {
+    console.error("register_planner_assignment_attachment RPC error:", rpcRes.error);
+    const code = rpcRes.error.code;
+    const msg = rpcRes.error.message || "";
+    if (code === "PGRST202" || code === "42883" || msg.includes("function") || msg.includes("not found")) {
+      return {
+        error: "Database migration required. Please apply the planner attachments migration to Supabase.",
+        data: null,
+      };
+    }
+    return {
+      error: rpcRes.error.message || "Could not register attachment.",
+      data: null,
+    };
+  }
+
+  return { error: null, data: rpcRes.data };
+}
+
+export async function deleteAttachmentAction({
+  assignmentId,
+  attachmentId,
+}: {
+  assignmentId: string;
+  attachmentId: string;
+}): Promise<{ error: string | null }> {
+  const context = await authenticated();
+  if (!isId(assignmentId) || !isId(attachmentId)) {
+    return { error: "Invalid attachment parameters." };
+  }
+
+  const owned = await ownedAssignment(assignmentId);
+  if (!owned) {
+    return { error: "Assignment not found or access denied." };
+  }
+
+  const { error } = await context.supabase
+    .from("planner_assignment_attachment_refs")
+    .delete()
+    .eq("assignment_id", assignmentId)
+    .eq("attachment_id", attachmentId)
+    .eq("user_id", context.userId);
+
+  if (error) {
+    console.error("Could not delete attachment reference:", error);
+    return { error: "Could not remove the attachment. Please try again." };
+  }
+
+  // Opportunistically clean up queued storage objects
+  void processPlannerAttachmentCleanup(context.supabase, context.userId);
+
+  revalidatePath("/planner");
+  revalidatePath("/");
+  return { error: null };
+}
+
+export async function getAttachmentSignedUrlAction({
+  assignmentId,
+  attachmentId,
+}: {
+  assignmentId: string;
+  attachmentId: string;
+}): Promise<{ error: string | null; signedUrl: string | null; fileName: string | null }> {
+  const context = await authenticated();
+  if (!isId(assignmentId) || !isId(attachmentId)) {
+    return { error: "Invalid attachment parameters.", signedUrl: null, fileName: null };
+  }
+
+  // Verify that this attachment is referenced by this assignment or its series root
+  const { data: ref } = await context.supabase
+    .from("planner_assignment_attachment_refs")
+    .select("attachment_id, assignment_id, attachment:planner_assignment_attachments(storage_path, file_name)")
+    .eq("assignment_id", assignmentId)
+    .eq("attachment_id", attachmentId)
+    .eq("user_id", context.userId)
+    .maybeSingle();
+
+  let storagePath: string | null = null;
+  let fileName: string | null = null;
+
+  if (ref && ref.attachment) {
+    const att = ref.attachment as unknown as { storage_path: string; file_name: string };
+    storagePath = att.storage_path;
+    fileName = att.file_name;
+  } else {
+    // If not found directly, check if assignment is an occurrence of a series root
+    const owned = await ownedAssignment(assignmentId);
+    if (owned && owned.assignment.parent_series_id) {
+      const { data: rootRef } = await context.supabase
+        .from("planner_assignment_attachment_refs")
+        .select("attachment:planner_assignment_attachments(storage_path, file_name)")
+        .eq("assignment_id", owned.assignment.parent_series_id)
+        .eq("attachment_id", attachmentId)
+        .eq("user_id", context.userId)
+        .maybeSingle();
+
+      if (rootRef && rootRef.attachment) {
+        const att = rootRef.attachment as unknown as { storage_path: string; file_name: string };
+        storagePath = att.storage_path;
+        fileName = att.file_name;
+      }
+    }
+  }
+
+  if (!storagePath) {
+    return { error: "Attachment not found or access denied.", signedUrl: null, fileName: null };
+  }
+
+  // Create 5-minute private signed URL
+  const { data, error } = await context.supabase.storage
+    .from("planner-attachments")
+    .createSignedUrl(storagePath, 300);
+
+  if (error || !data?.signedUrl) {
+    console.error("Could not create signed URL for attachment:", error);
+    return { error: "Could not access private attachment.", signedUrl: null, fileName: null };
+  }
+
+  return { error: null, signedUrl: data.signedUrl, fileName };
+}
+
+export async function processPlannerAttachmentCleanup(
+  supabase: import("@supabase/supabase-js").SupabaseClient,
+  userId: string
+): Promise<void> {
+  try {
+    const { data: queued, error: qErr } = await supabase
+      .from("planner_attachment_cleanup")
+      .select("id, storage_path")
+      .eq("user_id", userId)
+      .order("queued_at", { ascending: true })
+      .limit(10);
+
+    if (qErr || !queued || queued.length === 0) return;
+
+    for (const item of queued) {
+      const { error: remErr } = await supabase.storage
+        .from("planner-attachments")
+        .remove([item.storage_path]);
+
+      if (!remErr) {
+        await supabase
+          .from("planner_attachment_cleanup")
+          .delete()
+          .eq("id", item.id)
+          .eq("user_id", userId);
+      } else {
+        console.error("Failed to delete queued storage object:", item.storage_path, remErr);
+      }
+    }
+  } catch (err) {
+    console.error("Error processing planner attachment cleanup:", err);
+  }
 }

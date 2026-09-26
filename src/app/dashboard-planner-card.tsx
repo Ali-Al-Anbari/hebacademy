@@ -88,7 +88,10 @@ export function DashboardPlannerCard() {
         if (item.kind === "assignment") {
           const res = await toggleAssignmentStatus(
             item.assignmentId,
-            item.status
+            item.status,
+            item.isVirtual && item.parentSeriesId && item.originalDueDate
+              ? { parentSeriesId: item.parentSeriesId, originalDueDate: item.originalDueDate }
+              : undefined
           );
           if (res.error) throw new Error(res.error);
         } else {

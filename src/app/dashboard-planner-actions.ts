@@ -1,7 +1,12 @@
 "use server";
 
 import { addDays, isDateOnly, localDate } from "@/lib/planner/dates";
-import type { AssignmentStatus } from "@/lib/planner/types";
+import { resolveEffectiveAssignments } from "@/lib/planner/recurrence";
+import type {
+  AssignmentException,
+  AssignmentStatus,
+  PlannerAssignment,
+} from "@/lib/planner/types";
 import { createClient } from "@/lib/supabase/server";
 
 export type PlannerSummaryItem = {
@@ -9,6 +14,9 @@ export type PlannerSummaryItem = {
   kind: "assignment" | "subtask";
   title: string;
   assignmentId: string;
+  isVirtual?: boolean;
+  parentSeriesId?: string | null;
+  originalDueDate?: string | null;
   parentAssignmentTitle?: string;
   courseName?: string | null;
   courseColor?: string | null;
@@ -44,7 +52,7 @@ export async function getPlannerDashboardSummary(
   // 1. Fetch user's semesters to determine active semesters
   const { data: semesters, error: semError } = await supabase
     .from("planner_semesters")
-    .select("id, name, archived_at")
+    .select("id, name, start_date, end_date, archived_at")
     .eq("user_id", userId);
 
   if (semError) {
@@ -83,13 +91,16 @@ export async function getPlannerDashboardSummary(
 
   const activeSemesterIds = activeSemesters.map((s) => s.id);
 
-  // 2. Fetch courses and assignments/subtasks in parallel
+  // 2. Fetch courses, assignments/subtasks, and recurring roots in parallel
   const [
     coursesRes,
     nextAssignmentsRes,
     nextSubtasksRes,
     overdueAssignmentsRes,
     overdueSubtasksRes,
+    recurringRootsRes,
+    materializedOccurrencesRes,
+    exceptionsRes,
   ] = await Promise.all([
     supabase
       .from("planner_courses")
@@ -141,6 +152,23 @@ export async function getPlannerDashboardSummary(
       .order("due_date", { ascending: false })
       .order("position", { ascending: true })
       .limit(20),
+    supabase
+      .from("planner_assignments")
+      .select("id, semester_id, planner_course_id, parent_series_id, original_due_date, title, description, start_date, due_date, due_time, type_kind, custom_type_id, status, priority, recurrence_kind, recurrence_interval, recurrence_weekdays, recurrence_end_kind, recurrence_until, created_at, updated_at")
+      .eq("user_id", userId)
+      .in("semester_id", activeSemesterIds)
+      .neq("recurrence_kind", "none"),
+    supabase
+      .from("planner_assignments")
+      .select("id, semester_id, planner_course_id, parent_series_id, original_due_date, title, description, start_date, due_date, due_time, type_kind, custom_type_id, status, priority, recurrence_kind, recurrence_interval, recurrence_weekdays, recurrence_end_kind, recurrence_until, created_at, updated_at")
+      .eq("user_id", userId)
+      .in("semester_id", activeSemesterIds)
+      .not("parent_series_id", "is", null),
+    supabase
+      .from("planner_assignment_exceptions")
+      .select("id, semester_id, parent_series_id, original_due_date, kind")
+      .eq("user_id", userId)
+      .in("semester_id", activeSemesterIds),
   ]);
 
   if (coursesRes.error) console.error("Failed to load planner courses:", coursesRes.error);
@@ -148,6 +176,8 @@ export async function getPlannerDashboardSummary(
   if (nextSubtasksRes.error) console.error("Failed to load next subtasks:", nextSubtasksRes.error);
   if (overdueAssignmentsRes.error) console.error("Failed to load overdue assignments:", overdueAssignmentsRes.error);
   if (overdueSubtasksRes.error) console.error("Failed to load overdue subtasks:", overdueSubtasksRes.error);
+  if (recurringRootsRes.error) console.error("Failed to load recurring roots:", recurringRootsRes.error);
+  if (materializedOccurrencesRes.error) console.error("Failed to load materialized occurrences:", materializedOccurrencesRes.error);
 
   const courseMap = new Map<string, { id: string; name: string; color: string }>();
   for (const c of coursesRes.data ?? []) {
@@ -187,23 +217,142 @@ export async function getPlannerDashboardSummary(
     }
   }
 
-  // 4. Transform Next 3 Days items
-  const nextAssignmentItems: PlannerSummaryItem[] = (nextAssignmentsRes.data ?? []).map((a) => {
-    const course = a.planner_course_id ? courseMap.get(a.planner_course_id) : null;
-    return {
-      id: a.id,
-      kind: "assignment",
-      title: a.title,
-      assignmentId: a.id,
-      courseName: course?.name ?? null,
-      courseColor: course?.color ?? null,
-      dueDate: a.due_date,
-      dueTime: a.due_time,
-      isImportant: a.priority === "important",
-      status: a.status as AssignmentStatus,
-      isDone: false,
-    };
-  });
+  const allRoots = (recurringRootsRes.data ?? []) as PlannerAssignment[];
+  const allMaterialized = (materializedOccurrencesRes.data ?? []) as PlannerAssignment[];
+  const allExceptions = (exceptionsRes.data ?? []) as AssignmentException[];
+
+  const rootIdSet = new Set(allRoots.map((r) => r.id));
+
+  // 4. Transform Next 3 Days items (excluding recurring series roots so only occurrences appear)
+  const nextAssignmentItems: PlannerSummaryItem[] = (nextAssignmentsRes.data ?? [])
+    .filter((a) => !rootIdSet.has(a.id))
+    .map((a) => {
+      const course = a.planner_course_id ? courseMap.get(a.planner_course_id) : null;
+      return {
+        id: a.id,
+        kind: "assignment",
+        title: a.title,
+        assignmentId: a.id,
+        courseName: course?.name ?? null,
+        courseColor: course?.color ?? null,
+        dueDate: a.due_date,
+        dueTime: a.due_time,
+        isImportant: a.priority === "important",
+        status: a.status as AssignmentStatus,
+        isDone: false,
+      };
+    });
+
+  const overdueAssignmentItems: PlannerSummaryItem[] = (overdueAssignmentsRes.data ?? [])
+    .filter((a) => !rootIdSet.has(a.id))
+    .map((a) => {
+      const course = a.planner_course_id ? courseMap.get(a.planner_course_id) : null;
+      return {
+        id: a.id,
+        kind: "assignment",
+        title: a.title,
+        assignmentId: a.id,
+        courseName: course?.name ?? null,
+        courseColor: course?.color ?? null,
+        dueDate: a.due_date,
+        dueTime: a.due_time,
+        isImportant: a.priority === "important",
+        status: a.status as AssignmentStatus,
+        isDone: false,
+      };
+    });
+
+  // Expand recurring virtual occurrences for each active semester
+  for (const sem of activeSemesters) {
+    const semRoots = allRoots.filter((r) => r.semester_id === sem.id);
+    const semMaterialized = allMaterialized.filter((m) => m.semester_id === sem.id);
+    const semExceptions = allExceptions.filter((e) => e.semester_id === sem.id);
+    if (semRoots.length === 0) continue;
+
+    const semAssignments = [...semRoots, ...semMaterialized];
+
+    // 1. Next 3 Days expansion
+    const nextResolved = resolveEffectiveAssignments({
+      assignments: semAssignments,
+      exceptions: semExceptions,
+      semester: {
+        id: sem.id,
+        name: sem.name,
+        start_date: (sem as { start_date?: string }).start_date || today,
+        end_date: (sem as { end_date?: string }).end_date || day3,
+        time_zone: "UTC",
+        created_at: "",
+        archived_at: null,
+      },
+      rangeStart: today,
+      rangeEnd: day3,
+    });
+
+    for (const a of nextResolved.assignments) {
+      if (a.isVirtual && a.status !== "done") {
+        const course = a.planner_course_id ? courseMap.get(a.planner_course_id) : null;
+        nextAssignmentItems.push({
+          id: a.id,
+          kind: "assignment",
+          title: a.title,
+          assignmentId: a.id,
+          isVirtual: true,
+          parentSeriesId: a.seriesRootId ?? a.parent_series_id,
+          originalDueDate: a.originalOccurrenceDate ?? a.original_due_date ?? a.due_date,
+          courseName: course?.name ?? null,
+          courseColor: course?.color ?? null,
+          dueDate: a.due_date,
+          dueTime: a.due_time,
+          isImportant: a.priority === "important",
+          status: a.status as AssignmentStatus,
+          isDone: false,
+        });
+      }
+    }
+
+    // 2. Overdue expansion bounded by [sem.start_date, yesterday]
+    const overdueStart = sem.start_date;
+    const overdueEnd = addDays(today, -1);
+    if (overdueStart && overdueStart <= overdueEnd) {
+      const overdueResolved = resolveEffectiveAssignments({
+        assignments: semAssignments,
+        exceptions: semExceptions,
+        semester: {
+          id: sem.id,
+          name: sem.name,
+          start_date: sem.start_date,
+          end_date: sem.end_date,
+          time_zone: "UTC",
+          created_at: "",
+          archived_at: null,
+        },
+        rangeStart: overdueStart,
+        rangeEnd: overdueEnd,
+      });
+
+      for (const a of overdueResolved.assignments) {
+        if (a.isVirtual && a.status !== "done") {
+          const course = a.planner_course_id ? courseMap.get(a.planner_course_id) : null;
+          overdueAssignmentItems.push({
+            id: a.id,
+            kind: "assignment",
+            title: a.title,
+            assignmentId: a.id,
+            isVirtual: true,
+            parentSeriesId: a.seriesRootId ?? a.parent_series_id,
+            originalDueDate: a.originalOccurrenceDate ?? a.original_due_date ?? a.due_date,
+            courseName: course?.name ?? null,
+            courseColor: course?.color ?? null,
+            dueDate: a.due_date,
+            dueTime: a.due_time,
+            isImportant: a.priority === "important",
+            status: a.status as AssignmentStatus,
+            isDone: false,
+          });
+        }
+      }
+    }
+  }
 
   const nextSubtaskItems: PlannerSummaryItem[] = [];
   for (const s of rawNextSubtasks) {
@@ -232,24 +381,6 @@ export async function getPlannerDashboardSummary(
     if (a.dueTime && !b.dueTime) return -1;
     if (!a.dueTime && b.dueTime) return 1;
     return a.title.localeCompare(b.title);
-  });
-
-  // 5. Transform Overdue items
-  const overdueAssignmentItems: PlannerSummaryItem[] = (overdueAssignmentsRes.data ?? []).map((a) => {
-    const course = a.planner_course_id ? courseMap.get(a.planner_course_id) : null;
-    return {
-      id: a.id,
-      kind: "assignment",
-      title: a.title,
-      assignmentId: a.id,
-      courseName: course?.name ?? null,
-      courseColor: course?.color ?? null,
-      dueDate: a.due_date,
-      dueTime: a.due_time,
-      isImportant: a.priority === "important",
-      status: a.status as AssignmentStatus,
-      isDone: false,
-    };
   });
 
   const overdueSubtaskItems: PlannerSummaryItem[] = [];

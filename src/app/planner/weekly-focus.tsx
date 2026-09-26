@@ -18,6 +18,7 @@ import {
   getMondayOfWeek,
 } from "@/lib/planner/dates";
 import type {
+  EffectiveAssignment,
   PlannerAssignment,
   PlannerCourse,
   PlannerWeeklyFocusItem,
@@ -36,10 +37,10 @@ type Props = {
   onWeekChange: (newWeekStart: string) => void;
   today: string;
   courses: PlannerCourse[];
-  assignments: PlannerAssignment[];
+  assignments: (PlannerAssignment | EffectiveAssignment)[];
   focusItems: PlannerWeeklyFocusItem[];
-  onOpenAssignment: (assignment: PlannerAssignment) => void;
-  onToggleAssignmentStatus: (assignment: PlannerAssignment) => void;
+  onOpenAssignment: (assignment: PlannerAssignment | EffectiveAssignment) => void;
+  onToggleAssignmentStatus: (assignment: PlannerAssignment | EffectiveAssignment) => void;
   onSaved: () => void;
 };
 
@@ -62,6 +63,33 @@ export function WeeklyFocus({
   const courseById = useMemo(() => new Map(courses.map((c) => [c.id, c])), [courses]);
   const assignmentById = useMemo(() => new Map(assignments.map((a) => [a.id, a])), [assignments]);
 
+  const assignmentForItem = useMemo(() => {
+    return (item: PlannerWeeklyFocusItem): (PlannerAssignment | EffectiveAssignment) | null => {
+      if (!item.assignment_id) return null;
+      if (item.occurrence_date) {
+        const materialized = assignments.find(
+          (a) => a.parent_series_id === item.assignment_id && a.original_due_date === item.occurrence_date
+        );
+        if (materialized) return materialized;
+        const root = assignmentById.get(item.assignment_id);
+        if (root) {
+          return {
+            ...root,
+            id: `virtual:${root.id}:${item.occurrence_date}`,
+            due_date: item.occurrence_date,
+            original_due_date: item.occurrence_date,
+            parent_series_id: root.id,
+            isOccurrence: true,
+            isVirtual: true,
+            seriesRootId: root.id,
+            originalOccurrenceDate: item.occurrence_date,
+          };
+        }
+      }
+      return assignmentById.get(item.assignment_id) ?? null;
+    };
+  }, [assignments, assignmentById]);
+
   const currentWeekMonday = useMemo(() => getMondayOfWeek(today), [today]);
   const isCurrentWeek = weekStart === currentWeekMonday;
 
@@ -75,12 +103,12 @@ export function WeeklyFocus({
   const incompleteCount = useMemo(() => {
     return weekItems.filter((item) => {
       if (item.assignment_id) {
-        const assignment = assignmentById.get(item.assignment_id);
+        const assignment = assignmentForItem(item);
         return assignment ? assignment.status !== "done" : false;
       }
       return !item.is_done;
     }).length;
-  }, [weekItems, assignmentById]);
+  }, [weekItems, assignmentForItem]);
 
   async function handleAddFreeform(e: FormEvent) {
     e.preventDefault();
@@ -235,7 +263,7 @@ export function WeeklyFocus({
 
             if (item.assignment_id) {
               // Pinned Assignment
-              const assignment = assignmentById.get(item.assignment_id);
+              const assignment = assignmentForItem(item);
               if (!assignment) return null;
 
               const course = assignment.planner_course_id

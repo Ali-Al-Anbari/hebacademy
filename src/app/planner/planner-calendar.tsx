@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import FullCalendar, { type CalendarRef, type EventClickInfo, type EventInput } from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/react/daygrid";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
@@ -19,12 +19,16 @@ import {
   formatShortDate,
   meetingOccurrences,
   nextCalendarDay,
+  prevCalendarDay,
   type MeetingOccurrence,
 } from "@/lib/planner/dates";
+import { resolveEffectiveAssignments } from "@/lib/planner/recurrence";
 import type {
+  AssignmentException,
   AssignmentSubtask,
   AssignmentUrl,
   CourseMeeting,
+  EffectiveAssignment,
   MeetingException,
   PlannerAssignment,
   PlannerCourse,
@@ -39,6 +43,7 @@ import {
   type PlannerViewMode,
 } from "@/lib/planner/view-persistence";
 import { removeMeetingException, saveMeetingException } from "./actions";
+import { rescheduleAssignmentAction } from "./assignment-actions";
 import { AssignmentListView } from "./assignment-list";
 
 const plugins = [classicTheme, dayGridPlugin, timeGridPlugin, interactionPlugin];
@@ -61,6 +66,7 @@ export function PlannerCalendar({
   meetings,
   exceptions,
   assignments,
+  assignmentExceptions = [],
   customTypes,
   urls,
   subtasks,
@@ -78,7 +84,8 @@ export function PlannerCalendar({
   courses: PlannerCourse[];
   meetings: CourseMeeting[];
   exceptions: MeetingException[];
-  assignments: PlannerAssignment[];
+  assignments: (PlannerAssignment | EffectiveAssignment)[];
+  assignmentExceptions?: AssignmentException[];
   customTypes: PlannerCustomType[];
   urls: AssignmentUrl[];
   subtasks: AssignmentSubtask[];
@@ -87,7 +94,7 @@ export function PlannerCalendar({
   activeWeekStart?: string;
   today?: string;
   onEditRecurring: (courseId: string) => void;
-  onOpenAssignment: (assignment: PlannerAssignment) => void;
+  onOpenAssignment: (assignment: PlannerAssignment | EffectiveAssignment) => void;
   onAddAssignment: (initialDate?: string, initialCourseId?: string | null) => void;
   onTogglePinAssignment?: (assignmentId: string) => void;
   onSaved: () => void;
@@ -114,6 +121,10 @@ export function PlannerCalendar({
 
   const meetingById = useMemo(() => new Map(meetings.map((meeting) => [meeting.id, meeting])), [meetings]);
   const courseById = useMemo(() => new Map(courses.map((course) => [course.id, course])), [courses]);
+
+  useEffect(() => {
+    calendar.current?.getApi().refetchEvents();
+  }, [assignments, assignmentExceptions, exceptions, meetings, courses]);
 
   function handleEventClick(info: EventClickInfo) {
     const type = info.event.extendedProps.type;
@@ -206,6 +217,110 @@ export function PlannerCalendar({
     } finally {
       inFlight.current = false;
       setBusy(false);
+    }
+  }
+
+  async function handleEventDrop(info: {
+    event: {
+      startStr: string;
+      endStr?: string;
+      extendedProps: Record<string, unknown>;
+    };
+    revert: () => void;
+  }) {
+    const type = info.event.extendedProps.type;
+    if (type !== "assignment") {
+      info.revert();
+      return;
+    }
+    const assignment = info.event.extendedProps.assignment as EffectiveAssignment;
+    const newStartStr = info.event.startStr ? info.event.startStr.slice(0, 10) : "";
+    let newDueDate = newStartStr;
+    let newStartDate: string | null = null;
+    if (info.event.endStr) {
+      const rawEnd = info.event.endStr.slice(0, 10);
+      const exclusiveDayBefore = prevCalendarDay(rawEnd);
+      if (exclusiveDayBefore !== newStartStr) {
+        newStartDate = newStartStr;
+        newDueDate = exclusiveDayBefore;
+      }
+    }
+
+    const isVirtual = assignment.isVirtual;
+    const parentSeriesId = assignment.seriesRootId ?? assignment.parent_series_id;
+    const originalDueDate = assignment.originalOccurrenceDate ?? assignment.original_due_date ?? assignment.due_date;
+
+    try {
+      const res = await rescheduleAssignmentAction({
+        id: assignment.id,
+        isVirtual,
+        parentSeriesId,
+        originalDueDate,
+        dueDate: newDueDate,
+        startDate: newStartDate,
+      });
+      if (res.error) {
+        info.revert();
+        alert(res.error);
+      } else {
+        calendar.current?.getApi().refetchEvents();
+        onSaved();
+      }
+    } catch (err) {
+      info.revert();
+      console.error("Failed to drop event:", err);
+    }
+  }
+
+  async function handleEventResize(info: {
+    event: {
+      startStr: string;
+      endStr?: string;
+      extendedProps: Record<string, unknown>;
+    };
+    revert: () => void;
+  }) {
+    const type = info.event.extendedProps.type;
+    if (type !== "assignment") {
+      info.revert();
+      return;
+    }
+    const assignment = info.event.extendedProps.assignment as EffectiveAssignment;
+    const newStartStr = info.event.startStr ? info.event.startStr.slice(0, 10) : "";
+    let newDueDate = newStartStr;
+    let newStartDate: string | null = null;
+    if (info.event.endStr) {
+      const rawEnd = info.event.endStr.slice(0, 10);
+      const exclusiveDayBefore = prevCalendarDay(rawEnd);
+      if (exclusiveDayBefore !== newStartStr) {
+        newStartDate = newStartStr;
+        newDueDate = exclusiveDayBefore;
+      }
+    }
+
+    const isVirtual = assignment.isVirtual;
+    const parentSeriesId = assignment.seriesRootId ?? assignment.parent_series_id;
+    const originalDueDate = assignment.originalOccurrenceDate ?? assignment.original_due_date ?? assignment.due_date;
+
+    try {
+      const res = await rescheduleAssignmentAction({
+        id: assignment.id,
+        isVirtual,
+        parentSeriesId,
+        originalDueDate,
+        dueDate: newDueDate,
+        startDate: newStartDate,
+      });
+      if (res.error) {
+        info.revert();
+        alert(res.error);
+      } else {
+        calendar.current?.getApi().refetchEvents();
+        onSaved();
+      }
+    } catch (err) {
+      info.revert();
+      console.error("Failed to resize event:", err);
     }
   }
 
@@ -354,6 +469,9 @@ export function PlannerCalendar({
             allDayText="Due"
             slotMinTime="06:00:00"
             slotMaxTime="22:00:00"
+            editable={true}
+            eventDrop={handleEventDrop}
+            eventResize={handleEventResize}
             datesSet={(info) => setTitle(info.view.title)}
             events={(info, success) => {
               const startDate = info.startStr.slice(0, 10);
@@ -375,46 +493,56 @@ export function PlannerCalendar({
                 backgroundColor: "#fff9fb",
                 borderColor: item.color,
                 textColor: "#2A2024",
+                editable: false,
+                startEditable: false,
+                durationEditable: false,
                 extendedProps: { type: "meeting", occurrence: item, color: item.color },
               }));
 
               // 2. Assignments
-              const assignmentItems: EventInput[] = assignments
-                .filter((assignment) => {
-                  const effStart = assignment.start_date ?? assignment.due_date;
-                  const effEnd = assignment.due_date;
-                  return effEnd >= startDate && effStart <= endDate;
-                })
-                .map((assignment) => {
-                  const course = assignment.planner_course_id
-                    ? courseById.get(assignment.planner_course_id)
-                    : null;
-                  const color = course ? course.color : "#922c50";
-                  const isMultiDay = Boolean(
-                    assignment.start_date && assignment.start_date !== assignment.due_date
-                  );
-                  const isDone = assignment.status === "done";
+              const { assignments: effectiveAssignments } = resolveEffectiveAssignments({
+                assignments: assignments as PlannerAssignment[],
+                exceptions: assignmentExceptions,
+                semester,
+                rangeStart: startDate,
+                rangeEnd: endDate,
+                urls,
+                subtasks,
+              });
 
-                  // FullCalendar all-day end is exclusive, database due_date is inclusive
-                  const start = isMultiDay ? assignment.start_date! : assignment.due_date;
-                  const end = isMultiDay ? nextCalendarDay(assignment.due_date) : undefined;
+              const assignmentItems: EventInput[] = effectiveAssignments.map((assignment) => {
+                const course = assignment.planner_course_id
+                  ? courseById.get(assignment.planner_course_id)
+                  : null;
+                const color = course ? course.color : "#922c50";
+                const isMultiDay = Boolean(
+                  assignment.start_date && assignment.start_date !== assignment.due_date
+                );
+                const isDone = assignment.status === "done";
 
-                  return {
-                    id: `assignment:${assignment.id}`,
-                    title: assignment.title,
-                    start,
-                    end,
-                    allDay: true,
-                    backgroundColor: isDone ? "#f7f0f3" : "#ffffff",
-                    borderColor: color,
-                    textColor: isDone ? "#70545e" : "#2A2024",
-                    extendedProps: {
-                      type: "assignment",
-                      assignment,
-                      color,
-                    },
-                  };
-                });
+                // FullCalendar all-day end is exclusive, database due_date is inclusive
+                const start = isMultiDay ? assignment.start_date! : assignment.due_date;
+                const end = isMultiDay ? nextCalendarDay(assignment.due_date) : undefined;
+
+                return {
+                  id: `assignment:${assignment.id}`,
+                  title: assignment.title,
+                  start,
+                  end,
+                  allDay: true,
+                  editable: true,
+                  startEditable: true,
+                  durationEditable: true,
+                  backgroundColor: isDone ? "#f7f0f3" : "#ffffff",
+                  borderColor: color,
+                  textColor: isDone ? "#70545e" : "#2A2024",
+                  extendedProps: {
+                    type: "assignment",
+                    assignment,
+                    color,
+                  },
+                };
+              });
 
               success([...meetingItems, ...assignmentItems]);
             }}
@@ -470,6 +598,7 @@ export function PlannerCalendar({
           exceptions={exceptions}
           customTypes={customTypes}
           assignments={assignments}
+          assignmentExceptions={assignmentExceptions}
           courseNotes={courseNotes}
           weeklyFocusItems={weeklyFocusItems}
           activeWeekStart={activeWeekStart}

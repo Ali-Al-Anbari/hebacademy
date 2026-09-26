@@ -18,12 +18,17 @@ import {
   isTimeZone,
   localDate,
 } from "@/lib/planner/dates";
+import { parseVirtualAssignmentId } from "@/lib/planner/recurrence";
 import type {
+  AssignmentException,
   AssignmentSubtask,
   AssignmentUrl,
   CourseMeeting,
+  EffectiveAssignment,
   MeetingException,
   PlannerAssignment,
+  PlannerAssignmentAttachment,
+  PlannerAssignmentAttachmentRef,
   PlannerCourse,
   PlannerCourseNote,
   PlannerCustomType,
@@ -48,11 +53,14 @@ export function PlannerWorkspace({
   exceptions,
   hebacademyCourses,
   assignments = [],
+  assignmentExceptions = [],
   customTypes = [],
   urls = [],
   subtasks = [],
   courseNotes = [],
   weeklyFocusItems = [],
+  attachments = [],
+  attachmentRefs = [],
 }: {
   semesters: Semester[];
   courses: PlannerCourse[];
@@ -60,11 +68,14 @@ export function PlannerWorkspace({
   exceptions: MeetingException[];
   hebacademyCourses: { id: string; name: string }[];
   assignments?: PlannerAssignment[];
+  assignmentExceptions?: AssignmentException[];
   customTypes?: PlannerCustomType[];
   urls?: AssignmentUrl[];
   subtasks?: AssignmentSubtask[];
   courseNotes?: PlannerCourseNote[];
   weeklyFocusItems?: PlannerWeeklyFocusItem[];
+  attachments?: PlannerAssignmentAttachment[];
+  attachmentRefs?: PlannerAssignmentAttachmentRef[];
 }) {
   const router = useRouter();
   const today = useLocalToday();
@@ -88,7 +99,7 @@ export function PlannerWorkspace({
 
   // Assignment Drawer state
   const [drawerOpen, setDrawerOpen] = useState(() => Boolean(targetFromUrl));
-  const [editingAssignment, setEditingAssignment] = useState<PlannerAssignment | null>(
+  const [editingAssignment, setEditingAssignment] = useState<(PlannerAssignment | EffectiveAssignment) | null>(
     () => targetFromUrl
   );
   const [drawerInitialDate, setDrawerInitialDate] = useState<string | null>(null);
@@ -127,11 +138,14 @@ export function PlannerWorkspace({
   const selectedCourses = courses.filter((course) => course.semester_id === selected?.id);
   const selectedMeetings = meetings.filter((meeting) => meeting.semester_id === selected?.id);
   const selectedExceptions = exceptions.filter((exception) => exception.semester_id === selected?.id);
+  const selectedAssignmentExceptions = assignmentExceptions.filter((e) => e.semester_id === selected?.id);
   const selectedAssignments = assignments.filter((assignment) => assignment.semester_id === selected?.id);
   const selectedUrls = urls.filter((u) => selectedAssignments.some((a) => a.id === u.assignment_id));
   const selectedSubtasks = subtasks.filter((s) => selectedAssignments.some((a) => a.id === s.assignment_id));
   const selectedCourseNotes = courseNotes.filter((n) => n.semester_id === selected?.id);
   const selectedWeeklyFocus = weeklyFocusItems.filter((w) => w.semester_id === selected?.id);
+  const selectedAttachments = attachments.filter((att) => att.semester_id === selected?.id);
+  const selectedAttachmentRefs = attachmentRefs.filter((ref) => selectedAssignments.some((a) => a.id === ref.assignment_id));
 
   const archivedCount = semesters.filter((semester) => semester.archived_at).length;
 
@@ -157,7 +171,7 @@ export function PlannerWorkspace({
     setDrawerOpen(true);
   }
 
-  function handleOpenEditAssignment(assignment: PlannerAssignment) {
+  function handleOpenEditAssignment(assignment: PlannerAssignment | EffectiveAssignment) {
     setEditingAssignment(assignment);
     setDrawerInitialDate(null);
     setDrawerInitialCourseId(null);
@@ -176,14 +190,23 @@ export function PlannerWorkspace({
     setClassesOpen(true);
   }
 
-  async function handleTogglePinAssignment(assignmentId: string) {
+  async function handleTogglePinAssignment(assignmentId: string, occurrenceDate?: string | null) {
     if (!selected) return;
+    const parsed = parseVirtualAssignmentId(assignmentId);
+    const realId = parsed ? parsed.rootId : assignmentId;
+    const occDate = occurrenceDate ?? (parsed ? parsed.occurrenceDate : null);
     const isPinned = selectedWeeklyFocus.some(
-      (w) => w.assignment_id === assignmentId && w.week_start === activeWeekStart
+      (w) =>
+        w.week_start === activeWeekStart &&
+        (w.assignment_id === assignmentId ||
+          (w.assignment_id === realId && (w.occurrence_date === occDate || !w.occurrence_date)))
     );
     if (isPinned) {
       const pinItem = selectedWeeklyFocus.find(
-        (w) => w.assignment_id === assignmentId && w.week_start === activeWeekStart
+        (w) =>
+          w.week_start === activeWeekStart &&
+          (w.assignment_id === assignmentId ||
+            (w.assignment_id === realId && (w.occurrence_date === occDate || !w.occurrence_date)))
       );
       if (pinItem) {
         await deleteWeeklyFocusItem(pinItem.id);
@@ -193,14 +216,28 @@ export function PlannerWorkspace({
       await pinAssignmentToFocus({
         semesterId: selected.id,
         weekStart: activeWeekStart,
-        assignmentId,
+        assignmentId: realId,
+        occurrenceDate: occDate,
       });
       saved(selected.id);
     }
   }
 
-  async function handleToggleAssignmentStatus(assignment: PlannerAssignment) {
-    await toggleAssignmentStatus(assignment.id, assignment.status);
+  async function handleToggleAssignmentStatus(assignment: PlannerAssignment | EffectiveAssignment) {
+    const isVirt = "isVirtual" in assignment && Boolean(assignment.isVirtual);
+    const parentId =
+      "seriesRootId" in assignment && typeof assignment.seriesRootId === "string"
+        ? assignment.seriesRootId
+        : assignment.parent_series_id;
+    const origDate =
+      "originalOccurrenceDate" in assignment && typeof assignment.originalOccurrenceDate === "string"
+        ? assignment.originalOccurrenceDate
+        : assignment.original_due_date;
+    await toggleAssignmentStatus(
+      assignment.id,
+      assignment.status,
+      isVirt && parentId && origDate ? { parentSeriesId: parentId, originalDueDate: origDate } : undefined
+    );
     saved(selected?.id);
   }
 
@@ -335,6 +372,7 @@ export function PlannerWorkspace({
                   meetings={selectedMeetings}
                   exceptions={selectedExceptions}
                   assignments={selectedAssignments}
+                  assignmentExceptions={selectedAssignmentExceptions}
                   customTypes={allCustomTypes}
                   urls={selectedUrls}
                   subtasks={selectedSubtasks}
@@ -444,6 +482,7 @@ export function PlannerWorkspace({
             semester={selected}
             courses={selectedCourses}
             customTypes={allCustomTypes}
+            assignments={selectedAssignments}
             assignment={editingAssignment}
             initialDate={drawerInitialDate}
             initialCourseId={drawerInitialCourseId}
@@ -451,6 +490,8 @@ export function PlannerWorkspace({
             activeWeekStart={activeWeekStart}
             urls={selectedUrls}
             subtasks={selectedSubtasks}
+            attachments={selectedAttachments}
+            attachmentRefs={selectedAttachmentRefs}
             onSaved={() => saved(selected.id)}
             onDeleted={() => saved(selected.id)}
             onCustomTypeCreated={handleCustomTypeCreated}

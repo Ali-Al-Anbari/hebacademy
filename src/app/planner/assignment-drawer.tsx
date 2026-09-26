@@ -10,8 +10,14 @@ import {
   Check,
   Clock,
   ExternalLink,
+  FileSpreadsheet,
+  FileText,
+  ImageIcon,
+  Loader2,
+  Paperclip,
   Pin,
   Plus,
+  Presentation,
   Trash2,
   X,
 } from "lucide-react";
@@ -29,7 +35,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { formatShortDate, isDateOnly, isValidHttpUrl } from "@/lib/planner/dates";
+import { createClient } from "@/lib/supabase/client";
+import {
+  formatShortDate,
+  isDateOnly,
+  isValidHttpUrl,
+  weekdayOf,
+} from "@/lib/planner/dates";
 import {
   ASSIGNMENT_TYPE_LABELS,
   BUILTIN_ASSIGNMENT_TYPES,
@@ -42,16 +54,29 @@ import {
   type AssignmentUrl,
   type AssignmentUrlDraft,
   type BuiltinAssignmentType,
+  type EffectiveAssignment,
   type PlannerAssignment,
+  type PlannerAssignmentAttachment,
+  type PlannerAssignmentAttachmentRef,
   type PlannerCourse,
   type PlannerCustomType,
   type PlannerWeeklyFocusItem,
+  type RecurrenceEndKind,
+  type RecurrenceKind,
   type Semester,
 } from "@/lib/planner/types";
 import {
+  cancelOccurrenceAction,
   createCustomAssignmentType,
   deleteAssignment,
+  deleteAttachmentAction,
+  getAttachmentSignedUrlAction,
+  materializeOccurrenceAction,
+  registerAttachmentAction,
   saveAssignment,
+  splitSeriesAction,
+  updateEntireSeriesAction,
+  validateAttachmentFile,
 } from "./assignment-actions";
 
 type Props = {
@@ -60,24 +85,64 @@ type Props = {
   semester: Semester;
   courses: PlannerCourse[];
   customTypes: PlannerCustomType[];
-  assignment: PlannerAssignment | null;
+  assignments?: PlannerAssignment[];
+  assignment: (PlannerAssignment | EffectiveAssignment) | null;
   initialDate?: string | null;
   initialCourseId?: string | null;
   weeklyFocusItems?: PlannerWeeklyFocusItem[];
   activeWeekStart?: string;
   urls?: AssignmentUrl[];
   subtasks?: AssignmentSubtask[];
+  attachments?: PlannerAssignmentAttachment[];
+  attachmentRefs?: PlannerAssignmentAttachmentRef[];
   onSaved: (savedId?: string) => void;
   onDeleted?: () => void;
   onCustomTypeCreated: (type: PlannerCustomType) => void;
-  onTogglePin?: (assignmentId: string) => void;
+  onTogglePin?: (assignmentId: string, occurrenceDate?: string | null) => void;
 };
+
+function getAttachmentIcon(contentType: string) {
+  if (contentType.startsWith("image/")) {
+    return <ImageIcon className="size-4 text-emerald-600 shrink-0" />;
+  }
+  if (contentType === "application/pdf") {
+    return <FileText className="size-4 text-rose-600 shrink-0" />;
+  }
+  if (
+    contentType === "application/msword" ||
+    contentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    return <FileText className="size-4 text-blue-600 shrink-0" />;
+  }
+  if (
+    contentType === "application/vnd.ms-excel" ||
+    contentType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    contentType === "text/csv"
+  ) {
+    return <FileSpreadsheet className="size-4 text-emerald-700 shrink-0" />;
+  }
+  if (
+    contentType === "application/vnd.ms-powerpoint" ||
+    contentType === "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+  ) {
+    return <Presentation className="size-4 text-amber-600 shrink-0" />;
+  }
+  return <Paperclip className="size-4 text-muted-foreground shrink-0" />;
+}
+
+function formatFileSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function AssignmentDrawerForm({
   onClose,
   semester,
   courses,
   customTypes,
+  assignments = [],
   assignment,
   initialDate,
   initialCourseId,
@@ -85,6 +150,8 @@ function AssignmentDrawerForm({
   activeWeekStart,
   urls = [],
   subtasks = [],
+  attachments = [],
+  attachmentRefs = [],
   onSaved,
   onDeleted,
   onCustomTypeCreated,
@@ -100,6 +167,17 @@ function AssignmentDrawerForm({
     : initialDate && isDateOnly(initialDate)
       ? initialDate
       : semester.start_date;
+
+  const isVirtual = Boolean(assignment && "isVirtual" in assignment && assignment.isVirtual);
+  const isMaterialized = Boolean(assignment?.parent_series_id);
+  const isOccurrence = isVirtual || isMaterialized;
+  const seriesRootId = assignment?.parent_series_id || assignment?.id;
+  const seriesRoot = assignments.find((a) => a.id === seriesRootId) || null;
+  const originalOccurrenceDate =
+    (assignment && "originalDueDate" in assignment && assignment.originalDueDate) ||
+    assignment?.original_due_date ||
+    assignment?.due_date ||
+    initialDue;
 
   // Form fields
   const [title, setTitle] = useState(assignment?.title ?? "");
@@ -127,18 +205,61 @@ function AssignmentDrawerForm({
     assignment?.description ?? ""
   );
 
+  // Recurrence state: initialize from series root if occurrence, else assignment
+  const recurrenceSource = seriesRoot || assignment;
+  const [recurrenceKind, setRecurrenceKind] = useState<RecurrenceKind>(
+    (recurrenceSource?.recurrence_kind as RecurrenceKind) || "none"
+  );
+  const [recurrenceInterval, setRecurrenceInterval] = useState<number>(
+    recurrenceSource?.recurrence_interval || 1
+  );
+  const [recurrenceWeekdays, setRecurrenceWeekdays] = useState<number[]>(() => {
+    if (recurrenceSource?.recurrence_weekdays && Array.isArray(recurrenceSource.recurrence_weekdays)) {
+      return recurrenceSource.recurrence_weekdays;
+    }
+    return [weekdayOf(initialDue)];
+  });
+  const [recurrenceEndKind, setRecurrenceEndKind] = useState<RecurrenceEndKind>(
+    (recurrenceSource?.recurrence_end_kind as RecurrenceEndKind) || "semester_end"
+  );
+  const [recurrenceUntil, setRecurrenceUntil] = useState<string>(
+    recurrenceSource?.recurrence_until || ""
+  );
+
+  // Choice when editing or deleting an occurrence: "this" | "future" | "series"
+  const [editOccurrenceChoice, setEditOccurrenceChoice] = useState<"this" | "future" | "series">("this");
+  const [deleteChoice, setDeleteChoice] = useState<"occurrence" | "series">("occurrence");
+
+  // Relevant ID for child items (urls, subtasks, attachments)
+  // For virtual occurrences, use seriesRootId. For materialized occurrences, use assignment.id.
+  const relevantAssignId = isVirtual ? seriesRootId : assignment?.id;
+
   const [urlList, setUrlList] = useState<AssignmentUrlDraft[]>(() => {
     if (!assignment) return [];
+    if ("urls" in assignment && Array.isArray(assignment.urls) && assignment.urls.length > 0) {
+      return assignment.urls.map((u) => ({ id: u.id, url: u.url, label: u.label ?? "", position: u.position }));
+    }
+    if (!relevantAssignId) return [];
     return urls
-      .filter((u) => u.assignment_id === assignment.id)
+      .filter((u) => u.assignment_id === relevantAssignId)
       .sort((a, b) => a.position - b.position)
       .map((u) => ({ id: u.id, url: u.url, label: u.label ?? "", position: u.position }));
   });
 
   const [subtaskList, setSubtaskList] = useState<AssignmentSubtaskDraft[]>(() => {
     if (!assignment) return [];
+    if ("subtasks" in assignment && Array.isArray(assignment.subtasks) && assignment.subtasks.length > 0) {
+      return assignment.subtasks.map((s) => ({
+        id: s.id,
+        title: s.title,
+        is_done: s.is_done,
+        due_date: s.due_date ?? "",
+        position: s.position,
+      }));
+    }
+    if (!relevantAssignId) return [];
     return subtasks
-      .filter((s) => s.assignment_id === assignment.id)
+      .filter((s) => s.assignment_id === relevantAssignId)
       .sort((a, b) => a.position - b.position)
       .map((s) => ({
         id: s.id,
@@ -148,6 +269,23 @@ function AssignmentDrawerForm({
         position: s.position,
       }));
   });
+
+  const [attachmentList, setAttachmentList] = useState<PlannerAssignmentAttachment[]>(() => {
+    if (!assignment || !relevantAssignId) return [];
+    const myRefs = attachmentRefs.filter((r) => r.assignment_id === relevantAssignId);
+    const list: PlannerAssignmentAttachment[] = [];
+    for (const r of myRefs) {
+      const att = attachments.find((a) => a.id === r.attachment_id);
+      if (att) {
+        list.push({ ...att, position: r.position });
+      }
+    }
+    return list.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  });
+
+  const [uploadingFile, setUploadingFile] = useState<{ name: string } | null>(null);
+  const [openingAttachmentId, setOpeningAttachmentId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Inline custom type creator
   const [showNewCustomType, setShowNewCustomType] = useState(false);
@@ -239,6 +377,180 @@ function AssignmentDrawerForm({
     });
   }
 
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    e.target.value = "";
+
+    if (file.size <= 0) {
+      setMessage("File cannot be empty.");
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setMessage("File exceeds the 20 MB size limit.");
+      return;
+    }
+
+    const clientVal = await validateAttachmentFile({
+      name: file.name,
+      size: file.size,
+      type: file.type,
+    });
+    if (clientVal.error || !clientVal.canonicalMime) {
+      setMessage(clientVal.error || "Unsupported file type. Allowed: PDF, images, Word, PowerPoint, Excel, CSV.");
+      return;
+    }
+
+    let effectiveAssignmentId = assignment?.id;
+    if (isVirtual && seriesRootId && originalOccurrenceDate) {
+      setBusy(true);
+      const matRes = await materializeOccurrenceAction({
+        seriesId: seriesRootId,
+        originalDueDate: originalOccurrenceDate,
+        updates: {
+          title: title.trim(),
+          due_date: dueDate,
+          start_date: startDate || null,
+          due_time: dueTime ? dueTime.slice(0, 5) : null,
+          planner_course_id: courseId || null,
+          type_kind: typeKind,
+          custom_type_id: typeKind === "custom" ? customTypeId || null : null,
+          status,
+          priority,
+          description: description.trim() || null,
+        },
+      });
+      if (matRes.error || !matRes.id) {
+        setMessage(matRes.error || "Could not materialize occurrence for attachment.");
+        setBusy(false);
+        return;
+      }
+      effectiveAssignmentId = matRes.id;
+    }
+
+    if (!effectiveAssignmentId) {
+      setMessage("Please save the assignment first before uploading attachments.");
+      return;
+    }
+
+    setUploadingFile({ name: file.name });
+    setMessage("");
+
+    let regRes: Awaited<ReturnType<typeof registerAttachmentAction>>;
+    try {
+      regRes = await registerAttachmentAction({
+        assignmentId: effectiveAssignmentId,
+        fileName: file.name,
+        contentType: clientVal.canonicalMime,
+        byteSize: file.size,
+      });
+    } catch {
+      setMessage("Could not register attachment. Please try again.");
+      setUploadingFile(null);
+      setBusy(false);
+      return;
+    }
+
+    if (regRes.error || !regRes.data) {
+      setMessage(regRes.error || "Failed to register attachment.");
+      setUploadingFile(null);
+      setBusy(false);
+      return;
+    }
+
+    const registered = regRes.data;
+
+    try {
+      const supabase = createClient();
+      const { error: uploadError } = await supabase.storage
+        .from("planner-attachments")
+        .upload(registered.storage_path, file, {
+          contentType: registered.content_type,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error("Storage upload error:", uploadError);
+        await deleteAttachmentAction({
+          assignmentId: effectiveAssignmentId,
+          attachmentId: registered.id,
+        });
+        setMessage(`Upload failed: ${uploadError.message}. Please try again.`);
+        setUploadingFile(null);
+        setBusy(false);
+        return;
+      }
+
+      const newAtt: PlannerAssignmentAttachment = {
+        id: registered.id,
+        semester_id: registered.semester_id,
+        assignment_id: registered.assignment_id,
+        storage_path: registered.storage_path,
+        file_name: registered.file_name,
+        content_type: registered.content_type,
+        byte_size: registered.byte_size,
+        position: registered.position,
+        created_at: new Date().toISOString(),
+      };
+      setAttachmentList((prev) => [...prev, newAtt]);
+      onSaved(effectiveAssignmentId);
+    } catch (err: unknown) {
+      console.error("Attachment upload exception:", err);
+      await deleteAttachmentAction({
+        assignmentId: effectiveAssignmentId,
+        attachmentId: registered.id,
+      });
+      setMessage("Failed to upload file. Please try again.");
+    } finally {
+      setUploadingFile(null);
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteAttachment(attachmentId: string) {
+    if (!assignment || !relevantAssignId) return;
+    const targetId = relevantAssignId;
+    setBusy(true);
+    setMessage("");
+    try {
+      const res = await deleteAttachmentAction({
+        assignmentId: targetId,
+        attachmentId,
+      });
+      if (res.error) {
+        setMessage(res.error);
+      } else {
+        setAttachmentList((prev) => prev.filter((a) => a.id !== attachmentId));
+        onSaved(targetId);
+      }
+    } catch {
+      setMessage("Could not remove attachment. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleOpenAttachment(attachmentId: string) {
+    if (!assignment || !relevantAssignId) return;
+    setOpeningAttachmentId(attachmentId);
+    try {
+      const res = await getAttachmentSignedUrlAction({
+        assignmentId: relevantAssignId,
+        attachmentId,
+      });
+      if (res.error || !res.signedUrl) {
+        setMessage(res.error || "Could not open attachment.");
+      } else {
+        window.open(res.signedUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      setMessage("Could not access attachment. Please try again.");
+    } finally {
+      setOpeningAttachmentId(null);
+    }
+  }
+
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (inFlight.current) return;
@@ -274,6 +586,35 @@ function AssignmentDrawerForm({
       }
     }
 
+    // Determine recurrence fields based on occurrence choice
+    let recKind: RecurrenceKind = "none";
+    let recInterval = 1;
+    let recWeekdays: number[] | null = null;
+    let recEndKind: RecurrenceEndKind = "none";
+    let recUntil: string | null = null;
+
+    if (isOccurrence) {
+      if (editOccurrenceChoice === "this") {
+        recKind = "none";
+        recInterval = 1;
+        recWeekdays = null;
+        recEndKind = "none";
+        recUntil = null;
+      } else {
+        recKind = recurrenceKind;
+        recInterval = recurrenceInterval;
+        recWeekdays = recurrenceKind === "selected_weekdays" ? recurrenceWeekdays : null;
+        recEndKind = recurrenceEndKind;
+        recUntil = recurrenceEndKind === "date" ? recurrenceUntil || null : null;
+      }
+    } else {
+      recKind = recurrenceKind;
+      recInterval = recurrenceInterval;
+      recWeekdays = recurrenceKind === "selected_weekdays" ? recurrenceWeekdays : null;
+      recEndKind = recurrenceEndKind;
+      recUntil = recurrenceEndKind === "date" ? recurrenceUntil || null : null;
+    }
+
     const payload: AssignmentDraft = {
       title: title.trim(),
       planner_course_id: courseId || null,
@@ -285,6 +626,11 @@ function AssignmentDrawerForm({
       status,
       priority,
       description: description.trim() || null,
+      recurrence_kind: recKind,
+      recurrence_interval: recInterval,
+      recurrence_weekdays: recWeekdays,
+      recurrence_end_kind: recEndKind,
+      recurrence_until: recUntil,
       urls: urlList.map((u, idx) => ({ ...u, position: idx })),
       subtasks: subtaskList.map((s, idx) => ({ ...s, position: idx })),
     };
@@ -294,12 +640,52 @@ function AssignmentDrawerForm({
     setMessage("");
 
     try {
-      const res = await saveAssignment(assignment?.id ?? null, semester.id, payload);
-      if (res.error) {
-        setMessage(res.error);
+      if (isOccurrence && seriesRootId) {
+        if (editOccurrenceChoice === "series") {
+          const res = await updateEntireSeriesAction({
+            seriesId: seriesRootId,
+            semesterId: semester.id,
+            updates: payload,
+          });
+          if (res.error) {
+            setMessage(res.error);
+          } else {
+            onSaved(res.id ?? undefined);
+            onClose();
+          }
+        } else if (editOccurrenceChoice === "future") {
+          const res = await splitSeriesAction({
+            seriesId: seriesRootId,
+            splitDate: originalOccurrenceDate,
+            updates: payload,
+          });
+          if (res.error) {
+            setMessage(res.error);
+          } else {
+            onSaved(res.id ?? undefined);
+            onClose();
+          }
+        } else {
+          const res = await materializeOccurrenceAction({
+            seriesId: seriesRootId,
+            originalDueDate: originalOccurrenceDate,
+            updates: payload,
+          });
+          if (res.error) {
+            setMessage(res.error);
+          } else {
+            onSaved(res.id ?? undefined);
+            onClose();
+          }
+        }
       } else {
-        onSaved(res.id ?? undefined);
-        onClose();
+        const res = await saveAssignment(assignment?.id ?? null, semester.id, payload);
+        if (res.error) {
+          setMessage(res.error);
+        } else {
+          onSaved(res.id ?? undefined);
+          onClose();
+        }
       }
     } catch {
       setMessage("Could not save the assignment. Please try again.");
@@ -310,23 +696,42 @@ function AssignmentDrawerForm({
   }
 
   async function handleDelete() {
-    if (!assignment || inFlight.current) return;
+    if ((!assignment && !seriesRootId) || inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
     setMessage("");
 
     try {
-      const res = await deleteAssignment(assignment.id);
-      if (res.error) {
-        setMessage(res.error);
-      } else {
-        setConfirmDelete(false);
-        if (onDeleted) onDeleted();
-        else onSaved();
-        onClose();
+      if (isOccurrence && seriesRootId) {
+        if (deleteChoice === "occurrence") {
+          const res = await cancelOccurrenceAction({
+            seriesId: seriesRootId,
+            originalDueDate: originalOccurrenceDate,
+          });
+          if (res.error) {
+            setMessage(res.error);
+            return;
+          }
+        } else {
+          const res = await deleteAssignment(seriesRootId);
+          if (res.error) {
+            setMessage(res.error);
+            return;
+          }
+        }
+      } else if (assignment) {
+        const res = await deleteAssignment(assignment.id);
+        if (res.error) {
+          setMessage(res.error);
+          return;
+        }
       }
+      setConfirmDelete(false);
+      if (onDeleted) onDeleted();
+      else onSaved();
+      onClose();
     } catch {
-      setMessage("Could not delete the assignment. Please try again.");
+      setMessage("Could not delete. Please try again.");
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -478,6 +883,183 @@ function AssignmentDrawerForm({
         </div>
         {startDate && dueDate && startDate > dueDate && (
           <p className="text-xs text-destructive">Start date must be on or before the due date.</p>
+        )}
+
+        {/* Recurrence Settings or Occurrence Banner */}
+        {isOccurrence && (
+          <div className="rounded-xl border border-brand-200/80 bg-brand-50/70 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="flex size-6 items-center justify-center rounded-full bg-brand-200 text-xs font-bold text-brand-ink">
+                ↻
+              </span>
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-brand-ink">
+                  Recurring Occurrence
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Scheduled for {formatShortDate(originalOccurrenceDate)}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-1 border-t border-brand-200/60">
+              <p className="text-xs font-semibold text-foreground">Apply changes to:</p>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                  <input
+                    type="radio"
+                    name="editOccurrenceChoice"
+                    value="this"
+                    checked={editOccurrenceChoice === "this"}
+                    onChange={() => setEditOccurrenceChoice("this")}
+                    className="accent-brand-ink"
+                  />
+                  <span>This occurrence only</span>
+                </label>
+                <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                  <input
+                    type="radio"
+                    name="editOccurrenceChoice"
+                    value="future"
+                    checked={editOccurrenceChoice === "future"}
+                    onChange={() => setEditOccurrenceChoice("future")}
+                    className="accent-brand-ink"
+                  />
+                  <span>This and all future occurrences (split series)</span>
+                </label>
+                <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                  <input
+                    type="radio"
+                    name="editOccurrenceChoice"
+                    value="series"
+                    checked={editOccurrenceChoice === "series"}
+                    onChange={() => setEditOccurrenceChoice("series")}
+                    className="accent-brand-ink"
+                  />
+                  <span>Entire series</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(!isOccurrence || editOccurrenceChoice !== "this") && (
+          <div className="space-y-3 rounded-xl border border-border/80 bg-white/70 p-4">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="assignment-repeat" className="text-sm font-semibold flex items-center gap-1.5">
+                <span>Repeat</span>
+              </Label>
+              <select
+                id="assignment-repeat"
+                value={recurrenceKind}
+                disabled={busy}
+                onChange={(e) => setRecurrenceKind(e.target.value as RecurrenceKind)}
+                className="h-8 rounded-md border border-input bg-white px-2.5 text-xs font-medium outline-none focus:border-brand-ink"
+              >
+                <option value="none">Does not repeat</option>
+                <option value="daily">Daily</option>
+                <option value="selected_weekdays">Selected weekdays</option>
+                <option value="weekly">Weekly</option>
+                <option value="every_x_weeks">Every X weeks</option>
+                <option value="monthly">Monthly (same day number)</option>
+              </select>
+            </div>
+
+            {recurrenceKind === "selected_weekdays" && (
+              <div className="space-y-1.5 pt-1">
+                <p className="text-xs text-muted-foreground">Select repeating days:</p>
+                <div className="flex gap-1">
+                  {[
+                    { day: 1, label: "Mon" },
+                    { day: 2, label: "Tue" },
+                    { day: 3, label: "Wed" },
+                    { day: 4, label: "Thu" },
+                    { day: 5, label: "Fri" },
+                    { day: 6, label: "Sat" },
+                    { day: 7, label: "Sun" },
+                  ].map(({ day, label }) => {
+                    const isSelected = recurrenceWeekdays.includes(day);
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            if (recurrenceWeekdays.length > 1) {
+                              setRecurrenceWeekdays(recurrenceWeekdays.filter((w) => w !== day));
+                            }
+                          } else {
+                            setRecurrenceWeekdays([...recurrenceWeekdays, day].sort((a, b) => a - b));
+                          }
+                        }}
+                        className={`flex-1 h-8 rounded text-xs font-semibold transition-all ${
+                          isSelected
+                            ? "bg-brand-ink text-white"
+                            : "bg-[#f7edf1] text-foreground hover:bg-[#f2e1e7]"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {recurrenceKind === "every_x_weeks" && (
+              <div className="flex items-center gap-2 pt-1 text-xs">
+                <span>Repeat every</span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={52}
+                  value={recurrenceInterval}
+                  disabled={busy}
+                  onChange={(e) => setRecurrenceInterval(Math.max(1, Number(e.target.value)))}
+                  className="w-16 h-8 text-xs font-medium"
+                />
+                <span>weeks</span>
+              </div>
+            )}
+
+            {recurrenceKind !== "none" && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-border/60">
+                <div className="space-y-1">
+                  <Label htmlFor="recurrence-end-kind" className="text-xs font-semibold">
+                    Ends
+                  </Label>
+                  <select
+                    id="recurrence-end-kind"
+                    value={recurrenceEndKind}
+                    disabled={busy}
+                    onChange={(e) => setRecurrenceEndKind(e.target.value as RecurrenceEndKind)}
+                    className="h-8 w-full rounded-md border border-input bg-white px-2.5 text-xs font-medium outline-none focus:border-brand-ink"
+                  >
+                    <option value="semester_end">At semester end ({formatShortDate(semester.end_date)})</option>
+                    <option value="date">On specific date</option>
+                    <option value="never">Never</option>
+                  </select>
+                </div>
+
+                {recurrenceEndKind === "date" && (
+                  <div className="space-y-1">
+                    <Label htmlFor="recurrence-until" className="text-xs font-semibold">
+                      End date
+                    </Label>
+                    <Input
+                      id="recurrence-until"
+                      type="date"
+                      min={dueDate}
+                      value={recurrenceUntil}
+                      disabled={busy}
+                      onChange={(e) => setRecurrenceUntil(e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Assignment Type & Custom Type */}
@@ -842,12 +1424,118 @@ function AssignmentDrawerForm({
           )}
         </div>
 
+        {/* Attachments */}
+        <div className="space-y-2 border-t border-border/80 pt-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-ink">
+                Attachments {attachmentList.length > 0 && `(${attachmentList.length})`}
+              </h3>
+              <p className="text-xs text-muted-foreground">PDF, images, Word, PowerPoint, Excel, CSV up to 20 MB</p>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,application/pdf,image/jpeg,image/png,image/webp,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+              onChange={handleFileSelect}
+              disabled={busy || !assignment}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy || !assignment}
+              onClick={() => fileInputRef.current?.click()}
+              className="h-8 gap-1 text-xs"
+              title={!assignment ? "Save assignment first to attach files" : undefined}
+            >
+              <Plus className="size-3.5" />
+              Add file
+            </Button>
+          </div>
+
+          {!assignment && (
+            <p className="py-2 text-xs text-muted-foreground italic">
+              Save this assignment first to attach files.
+            </p>
+          )}
+
+          {uploadingFile && (
+            <div className="flex items-center gap-2 rounded-lg border border-brand-200/80 bg-brand-50/50 p-2.5 text-xs text-brand-ink">
+              <Loader2 className="size-4 animate-spin shrink-0 text-brand-ink" />
+              <span className="truncate">Uploading {uploadingFile.name}…</span>
+            </div>
+          )}
+
+          {assignment && attachmentList.length === 0 && !uploadingFile && (
+            <p className="py-2 text-xs text-muted-foreground">No attachments added yet.</p>
+          )}
+
+          {attachmentList.length > 0 && (
+            <ul className="space-y-2">
+              {attachmentList.map((att) => (
+                <li
+                  key={att.id}
+                  className="flex items-center justify-between gap-2.5 rounded-lg border border-border/70 bg-white p-2.5 text-xs shadow-2xs"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    {getAttachmentIcon(att.content_type)}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-ink truncate" title={att.file_name}>
+                        {att.file_name}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {formatFileSize(att.byte_size)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={busy || openingAttachmentId === att.id}
+                      onClick={() => handleOpenAttachment(att.id)}
+                      title="Open or download file"
+                      aria-label={`Open or download ${att.file_name}`}
+                      className="size-8 text-muted-foreground hover:text-ink"
+                    >
+                      {openingAttachmentId === att.id ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <ExternalLink className="size-3.5" />
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={busy}
+                      onClick={() => handleDeleteAttachment(att.id)}
+                      title="Remove attachment from this assignment"
+                      aria-label={`Remove ${att.file_name}`}
+                      className="size-8 text-destructive"
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         {/* Weekly Focus Pinning (for existing assignment) */}
         {assignment && onTogglePin && activeWeekStart && (
           (() => {
-            const isPinned = weeklyFocusItems.some(
-              (w) => w.assignment_id === assignment.id && w.week_start === activeWeekStart
-            );
+            const isPinned = weeklyFocusItems.some((w) => {
+              if (w.week_start !== activeWeekStart) return false;
+              if (isVirtual) {
+                return w.assignment_id === seriesRootId && w.occurrence_date === originalOccurrenceDate;
+              }
+              return w.assignment_id === assignment.id;
+            });
             return (
               <div className="flex items-center justify-between gap-3 rounded-lg border border-[#ebd5dd] bg-white p-3 text-xs shadow-xs">
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -872,7 +1560,7 @@ function AssignmentDrawerForm({
                   variant={isPinned ? "outline" : "secondary"}
                   size="sm"
                   className="h-7 text-xs font-semibold shrink-0"
-                  onClick={() => onTogglePin(assignment.id)}
+                  onClick={() => onTogglePin(assignment.id, isVirtual ? originalOccurrenceDate : null)}
                 >
                   {isPinned ? "Remove pin" : "Pin to focus"}
                 </Button>
@@ -883,7 +1571,7 @@ function AssignmentDrawerForm({
 
         {/* Actions Footer */}
         <div className="sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-2 border-t border-border/80 bg-[#fdf1f5]/90 p-4 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
-          {assignment ? (
+          {assignment || isOccurrence ? (
             <Button
               type="button"
               variant="destructive"
@@ -891,7 +1579,7 @@ function AssignmentDrawerForm({
               disabled={busy}
               onClick={() => setConfirmDelete(true)}
             >
-              Delete assignment
+              {isOccurrence ? "Cancel / Delete…" : "Delete assignment"}
             </Button>
           ) : (
             <div />
@@ -906,7 +1594,17 @@ function AssignmentDrawerForm({
               Cancel
             </Button>
             <Button type="submit" disabled={busy}>
-              {busy ? "Saving…" : assignment ? "Save changes" : "Create assignment"}
+              {busy
+                ? "Saving…"
+                : isOccurrence
+                ? editOccurrenceChoice === "series"
+                  ? "Save entire series"
+                  : editOccurrenceChoice === "future"
+                  ? "Save this & future"
+                  : "Save this occurrence"
+                : assignment
+                ? "Save changes"
+                : "Create assignment"}
             </Button>
           </div>
         </div>
@@ -916,10 +1614,50 @@ function AssignmentDrawerForm({
       <AlertDialog open={confirmDelete} onOpenChange={(open) => { if (!busy) setConfirmDelete(open); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete assignment permanently?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {isOccurrence ? "Cancel occurrence or delete series?" : "Delete assignment permanently?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              “{title || assignment?.title}” and all its subtasks and links will be permanently deleted. This cannot be undone.
+              {isOccurrence
+                ? "This assignment is part of a recurring series. Choose how you would like to proceed:"
+                : `“${title || assignment?.title}” and all its subtasks and links will be permanently deleted. This cannot be undone.`}
             </AlertDialogDescription>
+            {isOccurrence && (
+              <div className="space-y-2 pt-1 text-ink text-sm">
+                <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-border/80 p-2.5 hover:bg-black/5">
+                  <input
+                    type="radio"
+                    name="deleteOccurrenceChoice"
+                    value="occurrence"
+                    checked={deleteChoice === "occurrence"}
+                    onChange={() => setDeleteChoice("occurrence")}
+                    className="mt-0.5 text-brand-ink"
+                  />
+                  <div>
+                    <span className="font-medium text-ink">Cancel this occurrence only</span>
+                    <p className="text-xs text-muted-foreground">
+                      Removes this occurrence on {originalOccurrenceDate}. Future occurrences will remain.
+                    </p>
+                  </div>
+                </label>
+                <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-border/80 p-2.5 hover:bg-black/5">
+                  <input
+                    type="radio"
+                    name="deleteOccurrenceChoice"
+                    value="series"
+                    checked={deleteChoice === "series"}
+                    onChange={() => setDeleteChoice("series")}
+                    className="mt-0.5 text-brand-ink"
+                  />
+                  <div>
+                    <span className="font-medium text-destructive">Delete entire recurring series</span>
+                    <p className="text-xs text-muted-foreground">
+                      Permanently deletes the root recurring assignment and all occurrences.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
@@ -928,7 +1666,13 @@ function AssignmentDrawerForm({
               disabled={busy}
               onClick={() => void handleDelete()}
             >
-              {busy ? "Deleting…" : "Delete assignment"}
+              {busy
+                ? "Processing…"
+                : isOccurrence
+                ? deleteChoice === "occurrence"
+                  ? "Cancel occurrence"
+                  : "Delete entire series"
+                : "Delete assignment"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -958,6 +1702,7 @@ export function AssignmentDrawer(props: Props) {
               semester={props.semester}
               courses={props.courses}
               customTypes={props.customTypes}
+              assignments={props.assignments}
               assignment={props.assignment}
               initialDate={props.initialDate}
               initialCourseId={props.initialCourseId}
@@ -965,6 +1710,8 @@ export function AssignmentDrawer(props: Props) {
               activeWeekStart={props.activeWeekStart}
               urls={props.urls}
               subtasks={props.subtasks}
+              attachments={props.attachments}
+              attachmentRefs={props.attachmentRefs}
               onSaved={props.onSaved}
               onDeleted={props.onDeleted}
               onCustomTypeCreated={props.onCustomTypeCreated}

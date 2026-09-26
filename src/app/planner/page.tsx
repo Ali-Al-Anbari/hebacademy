@@ -15,11 +15,14 @@ export default async function PlannerPage() {
     exceptions,
     courses,
     assignments,
+    assignmentExceptions,
     customTypes,
     urls,
     subtasks,
     courseNotes,
     weeklyFocusItems,
+    attachments,
+    attachmentRefs,
   ] = await Promise.all([
     supabase.from("planner_semesters")
       .select("id, name, start_date, end_date, time_zone, archived_at, created_at")
@@ -37,6 +40,9 @@ export default async function PlannerPage() {
     supabase.from("planner_assignments")
       .select("id, semester_id, planner_course_id, parent_series_id, original_due_date, title, description, start_date, due_date, due_time, type_kind, custom_type_id, status, priority, recurrence_kind, recurrence_interval, recurrence_weekdays, recurrence_end_kind, recurrence_until, created_at, updated_at")
       .eq("user_id", userId).order("due_date", { ascending: true }),
+    supabase.from("planner_assignment_exceptions")
+      .select("id, semester_id, parent_series_id, original_due_date, kind")
+      .eq("user_id", userId),
     supabase.from("planner_custom_assignment_types")
       .select("id, name, created_at")
       .eq("user_id", userId).order("name"),
@@ -52,6 +58,12 @@ export default async function PlannerPage() {
     supabase.from("planner_weekly_focus_items")
       .select("id, semester_id, week_start, position, title, is_done, assignment_id, occurrence_date, created_at, updated_at")
       .eq("user_id", userId).order("position", { ascending: true }),
+    supabase.from("planner_assignment_attachments")
+      .select("id, semester_id, assignment_id, storage_path, file_name, content_type, byte_size, created_at")
+      .eq("user_id", userId),
+    supabase.from("planner_assignment_attachment_refs")
+      .select("assignment_id, attachment_id, position")
+      .eq("user_id", userId).order("position", { ascending: true }),
   ]);
   const failure = [
     semesters,
@@ -60,11 +72,14 @@ export default async function PlannerPage() {
     exceptions,
     courses,
     assignments,
+    assignmentExceptions,
     customTypes,
     urls,
     subtasks,
     courseNotes,
     weeklyFocusItems,
+    attachments,
+    attachmentRefs,
   ].find((result) => result.error);
   if (failure?.error) console.error("Failed to load planner:", failure.error);
 
@@ -81,11 +96,14 @@ export default async function PlannerPage() {
           exceptions={(exceptions.data ?? []) as import("@/lib/planner/types").MeetingException[]}
           hebacademyCourses={courses.data ?? []}
           assignments={(assignments.data ?? []) as import("@/lib/planner/types").PlannerAssignment[]}
+          assignmentExceptions={(assignmentExceptions.data ?? []) as import("@/lib/planner/types").AssignmentException[]}
           customTypes={customTypes.data ?? []}
           urls={urls.data ?? []}
           subtasks={subtasks.data ?? []}
           courseNotes={(courseNotes.data ?? []) as import("@/lib/planner/types").PlannerCourseNote[]}
           weeklyFocusItems={(weeklyFocusItems.data ?? []) as import("@/lib/planner/types").PlannerWeeklyFocusItem[]}
+          attachments={(attachments.data ?? []) as import("@/lib/planner/types").PlannerAssignmentAttachment[]}
+          attachmentRefs={(attachmentRefs.data ?? []) as import("@/lib/planner/types").PlannerAssignmentAttachmentRef[]}
         />
       )}
     </main>

@@ -39,6 +39,14 @@ export function addDays(date: string, days: number): string {
   return dateFromOrdinal(ordinal(date) + days * 86_400_000);
 }
 
+export function daysBetween(start: string, end: string): number {
+  return Math.round((ordinal(end) - ordinal(start)) / 86_400_000);
+}
+
+export function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 export function getMondayOfWeek(date: string): string {
   const w = weekdayOf(date);
   return addDays(date, -(w - 1));
@@ -79,6 +87,10 @@ export function isTimeZone(value: unknown): value is string {
 
 export function nextCalendarDay(date: string): string {
   return dateFromOrdinal(ordinal(date) + 86_400_000);
+}
+
+export function prevCalendarDay(date: string): string {
+  return dateFromOrdinal(ordinal(date) - 86_400_000);
 }
 
 export function isValidHttpUrl(value: unknown): value is string {
