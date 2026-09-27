@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,15 +16,22 @@ type Card = { id: string; prompt: string; answer: string; is_starred: boolean };
 
 const selectClass = "h-11 w-full rounded-lg border border-input bg-white px-3.5 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 disabled:opacity-50 md:text-sm";
 
-export function ScheduleForm({ courses, decks }: { courses: Course[]; decks: Deck[] }) {
+type PlannerContext = {
+  assignmentId: string; occurrenceDate: string | null; deckId: string;
+  courseId: string; name: string; examDate: string;
+};
+
+export function ScheduleForm({ courses, decks, plannerContext }: {
+  courses: Course[]; decks: Deck[]; plannerContext?: PlannerContext | null;
+}) {
   const router = useRouter();
   const requestNumber = useRef(0);
   const submitting = useRef(false);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(plannerContext?.name ?? "");
   const [description, setDescription] = useState("");
-  const [courseId, setCourseId] = useState("");
-  const [deckId, setDeckId] = useState("");
-  const [examDate, setExamDate] = useState("");
+  const [courseId, setCourseId] = useState(plannerContext?.courseId ?? "");
+  const [deckId, setDeckId] = useState(plannerContext?.deckId ?? "");
+  const [examDate, setExamDate] = useState(plannerContext?.examDate ?? "");
   const [mode, setMode] = useState<ScheduleSelectionMode>("all");
   const [cards, setCards] = useState<Card[]>([]);
   const [manualIds, setManualIds] = useState<string[]>([]);
@@ -42,6 +49,19 @@ export function ScheduleForm({ courses, decks }: { courses: Course[]; decks: Dec
       : manualIds.length;
   const datesPastExam = Boolean(examDate && isCalendarDate(examDate)
     && reviewDates.some((date) => date > examDate));
+
+  useEffect(() => {
+    if (!plannerContext) return;
+    const request = ++requestNumber.current;
+    loadScheduleDeckCards(plannerContext.courseId, plannerContext.deckId).then((result) => {
+      if (request !== requestNumber.current) return;
+      if (result.error) setMessage(result.error);
+      else { setCards(result.cards); setCardsLoaded(true); }
+    }).catch(() => {
+      if (request === requestNumber.current) setMessage("Could not load this deck's cards. Try again.");
+    });
+    return () => { requestNumber.current += 1; };
+  }, [plannerContext]);
 
   function chooseCourse(id: string) {
     requestNumber.current += 1;
@@ -125,6 +145,8 @@ export function ScheduleForm({ courses, decks }: { courses: Course[]; decks: Dec
       const result = await createSchedule({
         name, description, courseId, deckId, examDate,
         selectionMode: mode, manualCardIds: manualIds, reviewDates,
+        plannerAssignmentId: plannerContext?.assignmentId,
+        plannerOccurrenceDate: plannerContext?.occurrenceDate,
       });
       if (result.error) {
         setMessage(result.error);
@@ -150,9 +172,10 @@ export function ScheduleForm({ courses, decks }: { courses: Course[]; decks: Dec
         <div className="space-y-2"><Label htmlFor="schedule-name">Schedule name</Label><Input id="schedule-name" required maxLength={120} disabled={busy} value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Ocular Anatomy — Exam 1" /></div>
         <div className="space-y-2"><Label htmlFor="schedule-description">Description <span className="font-normal text-muted-foreground">(optional)</span></Label><Textarea id="schedule-description" maxLength={1000} rows={3} disabled={busy} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2"><Label htmlFor="schedule-course">Course</Label><select id="schedule-course" required disabled={busy} className={selectClass} value={courseId} onChange={(event) => chooseCourse(event.target.value)}><option value="">Choose a course</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></div>
-          <div className="space-y-2"><Label htmlFor="schedule-deck">Deck</Label><select id="schedule-deck" required disabled={!courseId || busy || loadingCards} className={selectClass} value={deckId} onChange={(event) => void chooseDeck(event.target.value)}><option value="">Choose a deck</option>{availableDecks.map((deck) => <option key={deck.id} value={deck.id}>{deck.name}</option>)}</select></div>
+          <div className="space-y-2"><Label htmlFor="schedule-course">Course</Label><select id="schedule-course" required disabled={busy || Boolean(plannerContext)} className={selectClass} value={courseId} onChange={(event) => chooseCourse(event.target.value)}><option value="">Choose a course</option>{courses.map((course) => <option key={course.id} value={course.id}>{course.name}</option>)}</select></div>
+          <div className="space-y-2"><Label htmlFor="schedule-deck">Deck</Label><select id="schedule-deck" required disabled={!courseId || busy || loadingCards || Boolean(plannerContext)} className={selectClass} value={deckId} onChange={(event) => void chooseDeck(event.target.value)}><option value="">Choose a deck</option>{availableDecks.map((deck) => <option key={deck.id} value={deck.id}>{deck.name}</option>)}</select></div>
         </div>
+        {plannerContext && <p className="field-hint">This plan will be linked to the selected Planner exam and deck. You can still choose its cards and review dates.</p>}
         {courseId && availableDecks.length === 0 && <p className="field-hint">This course has no decks yet. Add a deck before creating a schedule.</p>}
         <div className="space-y-2"><Label htmlFor="schedule-exam-date">Exam date <span className="font-normal text-muted-foreground">(optional)</span></Label><Input id="schedule-exam-date" type="date" disabled={busy} value={examDate} onChange={(event) => setExamDate(event.target.value)} /></div>
       </section>

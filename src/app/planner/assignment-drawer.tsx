@@ -58,8 +58,12 @@ import {
   type PlannerAssignment,
   type PlannerAssignmentAttachment,
   type PlannerAssignmentAttachmentRef,
+  type PlannerAssignmentDeck,
+  type PlannerAssignmentStudySchedule,
   type PlannerCourse,
   type PlannerCustomType,
+  type PlannerDeck,
+  type PlannerStudySchedule,
   type PlannerWeeklyFocusItem,
   type RecurrenceEndKind,
   type RecurrenceKind,
@@ -78,6 +82,8 @@ import {
   updateEntireSeriesAction,
   validateAttachmentFile,
 } from "./assignment-actions";
+import { StudyMaterials } from "./study-materials";
+import { AssignmentOverview } from "./assignment-overview";
 
 type Props = {
   isOpen: boolean;
@@ -95,7 +101,13 @@ type Props = {
   subtasks?: AssignmentSubtask[];
   attachments?: PlannerAssignmentAttachment[];
   attachmentRefs?: PlannerAssignmentAttachmentRef[];
-  onSaved: (savedId?: string) => void;
+  hebacademyCourses?: { id: string; name: string }[];
+  hebacademyDecks?: PlannerDeck[];
+  assignmentDecks?: PlannerAssignmentDeck[];
+  studySchedules?: PlannerStudySchedule[];
+  assignmentStudySchedules?: PlannerAssignmentStudySchedule[];
+  scheduleProgress?: Record<string, { completed: number; total: number }>;
+  onSaved: (savedId?: string, scope?: "this" | "future" | "series") => void;
   onDeleted?: () => void;
   onCustomTypeCreated: (type: PlannerCustomType) => void;
   onTogglePin?: (assignmentId: string, occurrenceDate?: string | null) => void;
@@ -152,11 +164,22 @@ function AssignmentDrawerForm({
   subtasks = [],
   attachments = [],
   attachmentRefs = [],
+  hebacademyCourses = [],
+  hebacademyDecks = [],
+  assignmentDecks = [],
+  studySchedules = [],
+  assignmentStudySchedules = [],
+  scheduleProgress = {},
   onSaved,
   onDeleted,
   onCustomTypeCreated,
   onTogglePin,
-}: Omit<Props, "isOpen">) {
+  onFinishEdit,
+  onReturnToOverview,
+}: Omit<Props, "isOpen"> & {
+  onFinishEdit: (id: string | undefined, draft: AssignmentDraft, scope: "this" | "future" | "series") => void;
+  onReturnToOverview: () => void;
+}) {
   const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -650,8 +673,7 @@ function AssignmentDrawerForm({
           if (res.error) {
             setMessage(res.error);
           } else {
-            onSaved(res.id ?? undefined);
-            onClose();
+            onFinishEdit(res.id ?? undefined, payload, "series");
           }
         } else if (editOccurrenceChoice === "future") {
           const res = await splitSeriesAction({
@@ -662,8 +684,7 @@ function AssignmentDrawerForm({
           if (res.error) {
             setMessage(res.error);
           } else {
-            onSaved(res.id ?? undefined);
-            onClose();
+            onFinishEdit(res.id ?? undefined, payload, "future");
           }
         } else {
           const res = await materializeOccurrenceAction({
@@ -674,8 +695,7 @@ function AssignmentDrawerForm({
           if (res.error) {
             setMessage(res.error);
           } else {
-            onSaved(res.id ?? undefined);
-            onClose();
+            onFinishEdit(res.id ?? undefined, payload, "this");
           }
         }
       } else {
@@ -683,8 +703,7 @@ function AssignmentDrawerForm({
         if (res.error) {
           setMessage(res.error);
         } else {
-          onSaved(res.id ?? undefined);
-          onClose();
+          onFinishEdit(res.id ?? undefined, payload, "this");
         }
       }
     } catch {
@@ -1424,6 +1443,24 @@ function AssignmentDrawerForm({
           )}
         </div>
 
+        {assignment && seriesRootId && (
+          <StudyMaterials
+            assignment={assignment}
+            rootId={seriesRootId}
+            occurrenceDate={originalOccurrenceDate}
+            isVirtual={isVirtual}
+            isOccurrence={isOccurrence}
+            plannerCourse={courses.find((course) => course.id === assignment.planner_course_id)}
+            courses={hebacademyCourses}
+            decks={hebacademyDecks}
+            deckLinks={assignmentDecks}
+            schedules={studySchedules}
+            scheduleLinks={assignmentStudySchedules}
+            scheduleProgress={scheduleProgress}
+            onSaved={() => { onSaved(); onReturnToOverview(); }}
+          />
+        )}
+
         {/* Attachments */}
         <div className="space-y-2 border-t border-border/80 pt-4">
           <div className="flex items-center justify-between">
@@ -1682,8 +1719,28 @@ function AssignmentDrawerForm({
 }
 
 export function AssignmentDrawer(props: Props) {
+  const [mode, setMode] = useState<"overview" | "edit">(props.assignment ? "overview" : "edit");
+  const [draft, setDraft] = useState<AssignmentDraft | null>(null);
+
+  function close() {
+    setMode("overview");
+    setDraft(null);
+    props.onClose();
+  }
+
+  function finishEdit(id: string | undefined, updated: AssignmentDraft, scope: "this" | "future" | "series") {
+    if (!props.assignment) {
+      props.onSaved(id);
+      close();
+      return;
+    }
+    setDraft(scope === "series" && props.assignment.parent_series_id ? null : updated);
+    setMode("overview");
+    props.onSaved(id, scope);
+  }
+
   return (
-    <DialogPrimitive.Root open={props.isOpen} onOpenChange={(open) => { if (!open) props.onClose(); }}>
+    <DialogPrimitive.Root open={props.isOpen} onOpenChange={(open) => { if (!open) close(); }}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Backdrop
           className="fixed inset-0 z-40 bg-[#261820]/30 backdrop-blur-[1px] duration-200 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0"
@@ -1691,14 +1748,35 @@ export function AssignmentDrawer(props: Props) {
         <DialogPrimitive.Popup
           className="fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-border bg-[#fff9fb] text-popover-foreground shadow-[-12px_0_40px_#23182025] outline-none overflow-y-auto sm:max-w-xl duration-200 data-open:animate-in data-open:slide-in-from-right data-closed:animate-out data-closed:slide-out-to-right"
         >
-          {props.isOpen && (
+          {props.isOpen && props.assignment && mode === "overview" && (
+            <AssignmentOverview
+              assignment={props.assignment}
+              draft={draft}
+              courses={props.courses}
+              customTypes={props.customTypes}
+              urls={props.urls ?? []}
+              subtasks={props.subtasks ?? []}
+              attachments={props.attachments ?? []}
+              attachmentRefs={props.attachmentRefs ?? []}
+              hebacademyCourses={props.hebacademyCourses ?? []}
+              hebacademyDecks={props.hebacademyDecks ?? []}
+              assignmentDecks={props.assignmentDecks ?? []}
+              studySchedules={props.studySchedules ?? []}
+              assignmentStudySchedules={props.assignmentStudySchedules ?? []}
+              scheduleProgress={props.scheduleProgress ?? {}}
+              onEdit={() => { setDraft(null); setMode("edit"); }}
+              onClose={close}
+              onSaved={props.onSaved}
+            />
+          )}
+          {props.isOpen && mode === "edit" && (
             <AssignmentDrawerForm
               key={
                 props.assignment
                   ? props.assignment.id
                   : `new:${props.initialDate ?? "default"}:${props.initialCourseId ?? "default"}`
               }
-              onClose={props.onClose}
+              onClose={close}
               semester={props.semester}
               courses={props.courses}
               customTypes={props.customTypes}
@@ -1712,10 +1790,18 @@ export function AssignmentDrawer(props: Props) {
               subtasks={props.subtasks}
               attachments={props.attachments}
               attachmentRefs={props.attachmentRefs}
+              hebacademyCourses={props.hebacademyCourses}
+              hebacademyDecks={props.hebacademyDecks}
+              assignmentDecks={props.assignmentDecks}
+              studySchedules={props.studySchedules}
+              assignmentStudySchedules={props.assignmentStudySchedules}
+              scheduleProgress={props.scheduleProgress}
               onSaved={props.onSaved}
               onDeleted={props.onDeleted}
               onCustomTypeCreated={props.onCustomTypeCreated}
               onTogglePin={props.onTogglePin}
+              onFinishEdit={finishEdit}
+              onReturnToOverview={() => setMode("overview")}
             />
           )}
         </DialogPrimitive.Popup>

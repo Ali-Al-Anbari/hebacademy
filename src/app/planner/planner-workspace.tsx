@@ -17,8 +17,9 @@ import {
   getMondayOfWeek,
   isTimeZone,
   localDate,
+  nextCalendarDay,
 } from "@/lib/planner/dates";
-import { parseVirtualAssignmentId } from "@/lib/planner/recurrence";
+import { parseVirtualAssignmentId, resolveEffectiveAssignments } from "@/lib/planner/recurrence";
 import type {
   AssignmentException,
   AssignmentSubtask,
@@ -29,9 +30,13 @@ import type {
   PlannerAssignment,
   PlannerAssignmentAttachment,
   PlannerAssignmentAttachmentRef,
+  PlannerAssignmentDeck,
+  PlannerAssignmentStudySchedule,
   PlannerCourse,
   PlannerCourseNote,
   PlannerCustomType,
+  PlannerDeck,
+  PlannerStudySchedule,
   PlannerWeeklyFocusItem,
   Semester,
 } from "@/lib/planner/types";
@@ -61,6 +66,11 @@ export function PlannerWorkspace({
   weeklyFocusItems = [],
   attachments = [],
   attachmentRefs = [],
+  hebacademyDecks = [],
+  assignmentDecks = [],
+  studySchedules = [],
+  assignmentStudySchedules = [],
+  scheduleProgress = {},
 }: {
   semesters: Semester[];
   courses: PlannerCourse[];
@@ -76,6 +86,11 @@ export function PlannerWorkspace({
   weeklyFocusItems?: PlannerWeeklyFocusItem[];
   attachments?: PlannerAssignmentAttachment[];
   attachmentRefs?: PlannerAssignmentAttachmentRef[];
+  hebacademyDecks?: PlannerDeck[];
+  assignmentDecks?: PlannerAssignmentDeck[];
+  studySchedules?: PlannerStudySchedule[];
+  assignmentStudySchedules?: PlannerAssignmentStudySchedule[];
+  scheduleProgress?: Record<string, { completed: number; total: number }>;
 }) {
   const router = useRouter();
   const today = useLocalToday();
@@ -102,6 +117,8 @@ export function PlannerWorkspace({
   const [editingAssignment, setEditingAssignment] = useState<(PlannerAssignment | EffectiveAssignment) | null>(
     () => targetFromUrl
   );
+  const [drawerKey, setDrawerKey] = useState(0);
+  const [drawerSavedId, setDrawerSavedId] = useState<string | null>(null);
   const [drawerInitialDate, setDrawerInitialDate] = useState<string | null>(null);
   const [drawerInitialCourseId, setDrawerInitialCourseId] = useState<string | null>(null);
   const [createdCustomTypes, setCreatedCustomTypes] = useState<PlannerCustomType[]>([]);
@@ -146,6 +163,31 @@ export function PlannerWorkspace({
   const selectedWeeklyFocus = weeklyFocusItems.filter((w) => w.semester_id === selected?.id);
   const selectedAttachments = attachments.filter((att) => att.semester_id === selected?.id);
   const selectedAttachmentRefs = attachmentRefs.filter((ref) => selectedAssignments.some((a) => a.id === ref.assignment_id));
+  const currentDrawerAssignment = (() => {
+    if (!editingAssignment) return null;
+    const effective = editingAssignment as EffectiveAssignment;
+    const occurrenceDate = effective.originalOccurrenceDate ?? editingAssignment.original_due_date;
+    const wantedId = drawerSavedId ?? editingAssignment.id;
+    const originalRootId = parseVirtualAssignmentId(editingAssignment.id)?.rootId ?? editingAssignment.parent_series_id;
+    if (selected && occurrenceDate) {
+      const resolved = resolveEffectiveAssignments({
+        assignments: selectedAssignments,
+        exceptions: selectedAssignmentExceptions,
+        semester: selected,
+        rangeStart: occurrenceDate,
+        rangeEnd: nextCalendarDay(occurrenceDate),
+        urls: selectedUrls,
+        subtasks: selectedSubtasks,
+      }).assignments;
+      const occurrence = resolved.find((item) =>
+        item.originalOccurrenceDate === occurrenceDate &&
+        (item.id === wantedId || item.seriesRootId === wantedId || item.parent_series_id === wantedId ||
+          (!drawerSavedId && originalRootId && (item.seriesRootId === originalRootId || item.parent_series_id === originalRootId)))
+      );
+      if (occurrence) return occurrence;
+    }
+    return selectedAssignments.find((item) => item.id === wantedId) ?? editingAssignment;
+  })();
 
   const archivedCount = semesters.filter((semester) => semester.archived_at).length;
 
@@ -165,6 +207,8 @@ export function PlannerWorkspace({
   }
 
   function handleOpenNewAssignment(initialDate?: string, initialCourseId?: string | null) {
+    setDrawerKey((value) => value + 1);
+    setDrawerSavedId(null);
     setEditingAssignment(null);
     setDrawerInitialDate(initialDate ?? null);
     setDrawerInitialCourseId(initialCourseId ?? null);
@@ -172,6 +216,8 @@ export function PlannerWorkspace({
   }
 
   function handleOpenEditAssignment(assignment: PlannerAssignment | EffectiveAssignment) {
+    setDrawerKey((value) => value + 1);
+    setDrawerSavedId(null);
     setEditingAssignment(assignment);
     setDrawerInitialDate(null);
     setDrawerInitialCourseId(null);
@@ -477,13 +523,14 @@ export function PlannerWorkspace({
 
           {/* Inline Assignment Drawer / Sheet */}
           <AssignmentDrawer
+            key={drawerKey}
             isOpen={drawerOpen}
             onClose={() => setDrawerOpen(false)}
             semester={selected}
             courses={selectedCourses}
             customTypes={allCustomTypes}
             assignments={selectedAssignments}
-            assignment={editingAssignment}
+            assignment={currentDrawerAssignment}
             initialDate={drawerInitialDate}
             initialCourseId={drawerInitialCourseId}
             weeklyFocusItems={selectedWeeklyFocus}
@@ -492,7 +539,16 @@ export function PlannerWorkspace({
             subtasks={selectedSubtasks}
             attachments={selectedAttachments}
             attachmentRefs={selectedAttachmentRefs}
-            onSaved={() => saved(selected.id)}
+            hebacademyCourses={hebacademyCourses}
+            hebacademyDecks={hebacademyDecks}
+            assignmentDecks={assignmentDecks}
+            studySchedules={studySchedules}
+            assignmentStudySchedules={assignmentStudySchedules}
+            scheduleProgress={scheduleProgress}
+            onSaved={(id, scope) => {
+              if (id && scope !== "series") setDrawerSavedId(id);
+              saved(selected.id);
+            }}
             onDeleted={() => saved(selected.id)}
             onCustomTypeCreated={handleCustomTypeCreated}
             onTogglePin={handleTogglePinAssignment}

@@ -60,6 +60,29 @@ function fcToViewMode(fcView: "dayGridMonth" | "timeGridWeek" | "list"): Planner
   return "month";
 }
 
+function accessibleCourseTextColor(color: string): string {
+  if (!/^#[\da-f]{6}$/i.test(color)) return "#55494d";
+  const channels = [1, 3, 5].map((offset) => Number.parseInt(color.slice(offset, offset + 2), 16));
+  const luminance = (values: number[]) => {
+    const linear = values.map((channel) => {
+      const value = channel / 255;
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  };
+  const contrast = (values: number[]) => 1.05 / (luminance(values) + 0.05);
+  if (contrast(channels) >= 4.5) return color;
+
+  // Darken the configured color in place, preserving its hue for readable text.
+  for (let factor = 0.98; factor >= 0; factor -= 0.02) {
+    const darker = channels.map((channel) => Math.round(channel * factor));
+    if (contrast(darker) >= 4.5) {
+      return `#${darker.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
+    }
+  }
+  return "#000000";
+}
+
 export function PlannerCalendar({
   semester,
   courses,
@@ -107,6 +130,7 @@ export function PlannerCalendar({
     return viewModeToFC(getSavedPlannerView());
   });
   const [title, setTitle] = useState("");
+  const [visibleRange, setVisibleRange] = useState<{ start: string; end: string } | null>(null);
   const [tappedDate, setTappedDate] = useState<string | null>(null);
 
   // Meeting occurrence edit dialog state
@@ -121,10 +145,22 @@ export function PlannerCalendar({
 
   const meetingById = useMemo(() => new Map(meetings.map((meeting) => [meeting.id, meeting])), [meetings]);
   const courseById = useMemo(() => new Map(courses.map((course) => [course.id, course])), [courses]);
+  const monthMeetings = useMemo(() => {
+    const byDay = new Map<string, Map<string, MeetingOccurrence[]>>();
+    if (!visibleRange || view !== "dayGridMonth") return byDay;
+    for (const occurrence of meetingOccurrences(
+      semester, courses, meetings, exceptions, visibleRange.start, visibleRange.end
+    )) {
+      const day = byDay.get(occurrence.date) ?? new Map<string, MeetingOccurrence[]>();
+      day.set(occurrence.courseId, [...(day.get(occurrence.courseId) ?? []), occurrence]);
+      byDay.set(occurrence.date, day);
+    }
+    return byDay;
+  }, [semester, courses, meetings, exceptions, visibleRange, view]);
 
   useEffect(() => {
     calendar.current?.getApi().refetchEvents();
-  }, [assignments, assignmentExceptions, exceptions, meetings, courses]);
+  }, [assignments, assignmentExceptions, exceptions, meetings, courses, view]);
 
   function handleEventClick(info: EventClickInfo) {
     const type = info.event.extendedProps.type;
@@ -461,7 +497,24 @@ export function PlannerCalendar({
             headerToolbar={false}
             firstDay={1}
             height="auto"
-            dayMaxEvents={3}
+            dayMaxEvents={view === "dayGridMonth" ? 7 : true}
+            dayCellTopContent={(info) => {
+              if (info.view.type !== "dayGridMonth") return info.dayNumberText;
+              const date = info.view.calendar.formatIso(info.date, true);
+              const dayCourses = [...(monthMeetings.get(date)?.values() ?? [])];
+              return (
+                <span className="planner-month-day-top">
+                  <span className="planner-month-meetings" aria-label="Classes meeting today">
+                    {dayCourses.map((occurrences) => {
+                      const first = occurrences[0];
+                      const detail = `${first.courseName}: ${occurrences.map((item) => `${displayTime(item.startTime)}–${displayTime(item.endTime)}`).join(", ")}`;
+                      return <span key={first.courseId} className="planner-month-meeting-dot" style={{ backgroundColor: first.color }} title={detail} aria-label={detail} role="img" />;
+                    })}
+                  </span>
+                  <span>{info.dayNumberText}</span>
+                </span>
+              );
+            }}
             displayEventTime={false}
             nowIndicator
             weekends
@@ -472,13 +525,16 @@ export function PlannerCalendar({
             editable={true}
             eventDrop={handleEventDrop}
             eventResize={handleEventResize}
-            datesSet={(info) => setTitle(info.view.title)}
+            datesSet={(info) => {
+              setTitle(info.view.title);
+              setVisibleRange({ start: info.startStr.slice(0, 10), end: info.endStr.slice(0, 10) });
+            }}
             events={(info, success) => {
               const startDate = info.startStr.slice(0, 10);
               const endDate = info.endStr.slice(0, 10);
 
               // 1. Class meetings
-              const meetingItems: EventInput[] = meetingOccurrences(
+              const meetingItems: EventInput[] = view === "dayGridMonth" ? [] : meetingOccurrences(
                 semester,
                 courses,
                 meetings,
@@ -514,12 +570,11 @@ export function PlannerCalendar({
                 const course = assignment.planner_course_id
                   ? courseById.get(assignment.planner_course_id)
                   : null;
-                const color = course ? course.color : "#922c50";
+                const color = course ? course.color : "#a69a9e";
+                const textColor = course ? accessibleCourseTextColor(color) : "#55494d";
                 const isMultiDay = Boolean(
                   assignment.start_date && assignment.start_date !== assignment.due_date
                 );
-                const isDone = assignment.status === "done";
-
                 // FullCalendar all-day end is exclusive, database due_date is inclusive
                 const start = isMultiDay ? assignment.start_date! : assignment.due_date;
                 const end = isMultiDay ? nextCalendarDay(assignment.due_date) : undefined;
@@ -530,16 +585,17 @@ export function PlannerCalendar({
                   start,
                   end,
                   allDay: true,
+                  className: "planner-calendar-assignment",
                   editable: true,
                   startEditable: true,
                   durationEditable: true,
-                  backgroundColor: isDone ? "#f7f0f3" : "#ffffff",
-                  borderColor: color,
-                  textColor: isDone ? "#70545e" : "#2A2024",
+                  color: "transparent",
+                  contrastColor: textColor,
                   extendedProps: {
                     type: "assignment",
                     assignment,
                     color,
+                    textColor,
                   },
                 };
               });
@@ -551,6 +607,7 @@ export function PlannerCalendar({
             eventContent={(info) => {
               const type = info.event.extendedProps.type;
               const color = (info.event.extendedProps.color as string) || "#FB6F92";
+              const textColor = (info.event.extendedProps.textColor as string) || "#55494d";
 
               if (type === "assignment") {
                 const assignment = info.event.extendedProps.assignment as PlannerAssignment;
@@ -560,14 +617,14 @@ export function PlannerCalendar({
                 return (
                   <span
                     className={`planner-cal-assignment ${isDone ? "planner-cal-assignment--done" : ""}`}
-                    style={{ borderLeft: `3px solid ${color}` }}
+                    style={{ borderLeft: `5px solid ${color}` }}
                   >
                     {isImportant && (
                       <span className="planner-cal-important" title="Important" aria-label="Important">
                         !
                       </span>
                     )}
-                    <span className="planner-cal-title truncate">{info.event.title}</span>
+                    <span className="planner-cal-title truncate" style={{ color: textColor }}>{info.event.title}</span>
                   </span>
                 );
               }
@@ -585,7 +642,7 @@ export function PlannerCalendar({
           />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Double-click an empty day to add an assignment. Click any assignment or class meeting to view details.
+          Double-click an empty day to add an assignment. Click an assignment to view details{view === "timeGridWeek" ? " or a class meeting to manage it" : ""}.
         </p>
       </div>
 

@@ -9,6 +9,8 @@ export type ScheduleDraft = {
   selectionMode: ScheduleSelectionMode;
   manualCardIds: string[];
   reviewDates: string[];
+  plannerAssignmentId?: string;
+  plannerOccurrenceDate?: string | null;
 };
 
 export type ScheduleEdit = {

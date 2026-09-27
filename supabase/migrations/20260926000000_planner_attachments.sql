@@ -59,6 +59,53 @@ begin
     raise exception 'Unsupported file type %.', p_content_type using errcode = '22000';
   end if;
 
+  -- Require a supported filename extension as well as an allowed MIME type.
+if lower(p_file_name) !~ '\.(pdf|jpg|jpeg|png|webp|doc|docx|ppt|pptx|xls|xlsx|csv)$' then
+  raise exception 'Unsupported file extension.' using errcode = '22000';
+end if;
+
+-- Ensure the extension agrees with the declared MIME type.
+if not (
+  (lower(p_file_name) ~ '\.pdf$'
+    and p_content_type = 'application/pdf')
+
+  or (lower(p_file_name) ~ '\.(jpg|jpeg)$'
+    and p_content_type = 'image/jpeg')
+
+  or (lower(p_file_name) ~ '\.png$'
+    and p_content_type = 'image/png')
+
+  or (lower(p_file_name) ~ '\.webp$'
+    and p_content_type = 'image/webp')
+
+  or (lower(p_file_name) ~ '\.doc$'
+    and p_content_type = 'application/msword')
+
+  or (lower(p_file_name) ~ '\.docx$'
+    and p_content_type =
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+
+  or (lower(p_file_name) ~ '\.ppt$'
+    and p_content_type = 'application/vnd.ms-powerpoint')
+
+  or (lower(p_file_name) ~ '\.pptx$'
+    and p_content_type =
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation')
+
+  or (lower(p_file_name) ~ '\.xls$'
+    and p_content_type = 'application/vnd.ms-excel')
+
+  or (lower(p_file_name) ~ '\.xlsx$'
+    and p_content_type =
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+  or (lower(p_file_name) ~ '\.csv$'
+    and p_content_type = 'text/csv')
+) then
+  raise exception 'File extension does not match content type.'
+    using errcode = '22000';
+  end if;
+
   -- 2. Verify assignment ownership and obtain semester_id
   select semester_id into v_semester_id
   from public.planner_assignments

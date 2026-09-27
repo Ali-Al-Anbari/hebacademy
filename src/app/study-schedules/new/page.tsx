@@ -3,9 +3,12 @@ import { redirect } from "next/navigation";
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
 import { buttonVariants } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
+import { isCalendarDate } from "@/lib/schedules";
 import { ScheduleForm } from "./schedule-form";
 
-export default async function NewSchedulePage() {
+export default async function NewSchedulePage({ searchParams }: {
+  searchParams: Promise<{ assignment?: string; occurrence?: string; deck?: string }>;
+}) {
   const supabase = await createClient();
   const { data: auth, error: authError } = await supabase.auth.getClaims();
   if (authError || !auth?.claims?.sub) redirect("/login");
@@ -19,6 +22,34 @@ export default async function NewSchedulePage() {
   ]);
   if (coursesResult.error) console.error("Failed to load schedule courses:", coursesResult.error);
   if (decksResult.error) console.error("Failed to load schedule decks:", decksResult.error);
+  const params = await searchParams;
+  const requestedAssignment = params.assignment;
+  const requestedDeck = params.deck;
+  const requestedOccurrence = params.occurrence;
+  let plannerContext: {
+    assignmentId: string; occurrenceDate: string | null; deckId: string;
+    courseId: string; name: string; examDate: string;
+  } | null = null;
+  if (requestedAssignment && requestedDeck &&
+      /^[0-9a-f-]{36}$/i.test(requestedAssignment) && /^[0-9a-f-]{36}$/i.test(requestedDeck) &&
+      (!requestedOccurrence || isCalendarDate(requestedOccurrence))) {
+    const { data: assignment } = await supabase.from("planner_assignments")
+      .select("id, title, type_kind, due_date, recurrence_kind, parent_series_id")
+      .eq("id", requestedAssignment).eq("user_id", userId).maybeSingle();
+    const deck = decksResult.data?.find((item) => item.id === requestedDeck);
+    if (assignment?.type_kind === "exam" && deck &&
+        (!requestedOccurrence || (assignment.recurrence_kind !== "none" && !assignment.parent_series_id))) {
+      const { data: link } = await supabase.from("planner_assignment_decks")
+        .select("deck_id").eq("assignment_id", assignment.id)
+        .eq("deck_id", deck.id).eq("user_id", userId).maybeSingle();
+      if (link) plannerContext = {
+        assignmentId: assignment.id,
+        occurrenceDate: requestedOccurrence ?? null,
+        deckId: deck.id, courseId: deck.course_id,
+        name: assignment.title, examDate: requestedOccurrence ?? assignment.due_date,
+      };
+    }
+  }
 
   return (
     <main className="page-container page-container--narrow">
@@ -36,7 +67,8 @@ export default async function NewSchedulePage() {
           <Link href="/" className={buttonVariants({ className: "mt-5" })}>Back to Dashboard</Link>
         </div>
       ) : (
-        <ScheduleForm courses={coursesResult.data} decks={decksResult.data ?? []} />
+        <ScheduleForm courses={coursesResult.data} decks={decksResult.data ?? []}
+          plannerContext={plannerContext} />
       )}
     </main>
   );

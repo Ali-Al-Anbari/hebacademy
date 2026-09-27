@@ -24,7 +24,7 @@ grant update (name, description, exam_date, archived_at, updated_at)
   on table public.study_schedules to authenticated;
 
 create policy "Users manage schedules for their own decks"
-on public.study_schedules for all to authenticated
+on public.study_schedules for all to authenticated/
 using (
   user_id = (select auth.uid())
   and exists (

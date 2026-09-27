@@ -115,6 +115,11 @@ export type PlannerAssignmentAttachmentRef = {
   position: number;
 };
 
+export type PlannerDeck = { id: string; name: string; course_id: string };
+export type PlannerAssignmentDeck = { assignment_id: string; deck_id: string };
+export type PlannerStudySchedule = { id: string; deck_id: string; name: string };
+export type PlannerAssignmentStudySchedule = { assignment_id: string; study_schedule_id: string };
+
 export type PlannerAssignment = {
   id: string;
   semester_id: string;

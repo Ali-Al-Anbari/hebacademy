@@ -84,6 +84,41 @@ export async function createSchedule(input: ScheduleDraft) {
   const context = await ownedDeck(input.courseId, input.deckId);
   if (!context) return failure("This course or deck is unavailable.");
 
+  if (input.plannerAssignmentId !== undefined) {
+    if (typeof input.plannerAssignmentId !== "string" || !validId(input.plannerAssignmentId)
+        || (input.plannerOccurrenceDate != null &&
+          (typeof input.plannerOccurrenceDate !== "string" || !isCalendarDate(input.plannerOccurrenceDate)))) {
+      return failure("This Planner exam is unavailable.");
+    }
+    const { data: exam, error: examError } = await context.supabase.from("planner_assignments")
+      .select("id, type_kind, parent_series_id, recurrence_kind")
+      .eq("id", input.plannerAssignmentId).eq("user_id", context.userId).maybeSingle();
+    if (examError || !exam || exam.type_kind !== "exam"
+        || (input.plannerOccurrenceDate &&
+          (exam.parent_series_id || exam.recurrence_kind === "none"))) {
+      return failure("This Planner exam is unavailable.");
+    }
+    const { data: linkedDeck, error: linkError } = await context.supabase
+      .from("planner_assignment_decks").select("deck_id")
+      .eq("assignment_id", exam.id).eq("deck_id", input.deckId)
+      .eq("user_id", context.userId).maybeSingle();
+    if (linkError || !linkedDeck) return failure("Link this deck to the Planner exam first.");
+    const { data: existingLinks, error: existingError } = await context.supabase
+      .from("planner_assignment_study_schedules").select("study_schedule_id")
+      .eq("assignment_id", exam.id).eq("user_id", context.userId);
+    if (existingError) return failure("Could not check existing study plans. Try again.");
+    if (existingLinks?.length) {
+      const { data: existingSchedules, error: schedulesError } = await context.supabase
+        .from("study_schedules").select("id, deck_id")
+        .eq("user_id", context.userId)
+        .in("id", existingLinks.map((link) => link.study_schedule_id));
+      if (schedulesError) return failure("Could not check existing study plans. Try again.");
+      if (existingSchedules?.some((schedule) => schedule.deck_id === input.deckId)) {
+        return failure("This deck already has a study schedule linked to this exam.");
+      }
+    }
+  }
+
   let cards: Awaited<ReturnType<typeof getOwnedStudyCards>>;
   try {
     cards = await getOwnedStudyCards(context.supabase, input.deckId, context.userId);
@@ -173,6 +208,19 @@ export async function createSchedule(input: ScheduleDraft) {
   } catch (error) {
     console.error("Unexpected error while saving schedule cards or dates:", error);
     return undoPartialCreate();
+  }
+
+  if (input.plannerAssignmentId) {
+    const { error: plannerLinkError } = await context.supabase.rpc("link_planner_study_schedule", {
+      p_assignment_id: input.plannerAssignmentId,
+      p_original_due_date: input.plannerOccurrenceDate || null,
+      p_study_schedule_id: scheduleId,
+    });
+    if (plannerLinkError) {
+      console.error("Failed to link new study schedule to Planner exam:", plannerLinkError);
+      return undoPartialCreate();
+    }
+    revalidatePath("/planner");
   }
 
   revalidatePath("/");

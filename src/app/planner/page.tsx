@@ -23,6 +23,10 @@ export default async function PlannerPage() {
     weeklyFocusItems,
     attachments,
     attachmentRefs,
+    decks,
+    assignmentDecks,
+    studySchedules,
+    assignmentStudySchedules,
   ] = await Promise.all([
     supabase.from("planner_semesters")
       .select("id, name, start_date, end_date, time_zone, archived_at, created_at")
@@ -64,6 +68,13 @@ export default async function PlannerPage() {
     supabase.from("planner_assignment_attachment_refs")
       .select("assignment_id, attachment_id, position")
       .eq("user_id", userId).order("position", { ascending: true }),
+    supabase.from("decks").select("id, name, course_id").eq("user_id", userId).order("name"),
+    supabase.from("planner_assignment_decks")
+      .select("assignment_id, deck_id").eq("user_id", userId),
+    supabase.from("study_schedules")
+      .select("id, deck_id, name").eq("user_id", userId),
+    supabase.from("planner_assignment_study_schedules")
+      .select("assignment_id, study_schedule_id").eq("user_id", userId),
   ]);
   const failure = [
     semesters,
@@ -80,7 +91,35 @@ export default async function PlannerPage() {
     weeklyFocusItems,
     attachments,
     attachmentRefs,
+    decks,
+    assignmentDecks,
+    studySchedules,
+    assignmentStudySchedules,
   ].find((result) => result.error);
+  const scheduleIds = [...new Set((assignmentStudySchedules.data ?? []).map((link) => link.study_schedule_id))];
+  const scheduleProgress: Record<string, { completed: number; total: number }> = {};
+  if (!failure?.error && scheduleIds.length) {
+    const { data: dates, error: datesError } = await supabase.from("study_schedule_dates")
+      .select("id, study_schedule_id").in("study_schedule_id", scheduleIds);
+    if (datesError) console.error("Failed to load Planner study schedule dates:", datesError);
+    else {
+      const dateIds = (dates ?? []).map((date) => date.id);
+      const { data: sessions, error: sessionsError } = dateIds.length
+        ? await supabase.from("study_sessions").select("study_schedule_date_id")
+          .eq("user_id", userId).not("completed_at", "is", null)
+          .in("study_schedule_date_id", dateIds)
+        : { data: [], error: null };
+      if (sessionsError) console.error("Failed to load Planner study completions:", sessionsError);
+      else {
+        const completed = new Set((sessions ?? []).map((session) => session.study_schedule_date_id));
+        for (const id of scheduleIds) scheduleProgress[id] = { completed: 0, total: 0 };
+        for (const date of dates ?? []) {
+          scheduleProgress[date.study_schedule_id].total += 1;
+          if (completed.has(date.id)) scheduleProgress[date.study_schedule_id].completed += 1;
+        }
+      }
+    }
+  }
   if (failure?.error) console.error("Failed to load planner:", failure.error);
 
   return (
@@ -104,6 +143,11 @@ export default async function PlannerPage() {
           weeklyFocusItems={(weeklyFocusItems.data ?? []) as import("@/lib/planner/types").PlannerWeeklyFocusItem[]}
           attachments={(attachments.data ?? []) as import("@/lib/planner/types").PlannerAssignmentAttachment[]}
           attachmentRefs={(attachmentRefs.data ?? []) as import("@/lib/planner/types").PlannerAssignmentAttachmentRef[]}
+          hebacademyDecks={decks.data ?? []}
+          assignmentDecks={assignmentDecks.data ?? []}
+          studySchedules={studySchedules.data ?? []}
+          assignmentStudySchedules={assignmentStudySchedules.data ?? []}
+          scheduleProgress={scheduleProgress}
         />
       )}
     </main>
