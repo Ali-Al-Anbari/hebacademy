@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { AlertTriangle, ArrowRight, Check } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { useLocalToday } from "@/lib/local-calendar";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/planner/dates";
 import { cn } from "@/lib/utils";
 import {
+  completeVirtualDashboardSubtask,
   getPlannerDashboardSummary,
   type PlannerDashboardSummary,
   type PlannerSummaryItem,
@@ -29,12 +30,15 @@ const MAX_VISIBLE_OVERDUE = 4;
 export function DashboardPlannerCard() {
   const today = useLocalToday();
   const [summary, setSummary] = useState<PlannerDashboardSummary | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<{
     next3Days: PlannerSummaryItem[];
     overdue: PlannerSummaryItem[];
   }>({ next3Days: [], overdue: [] });
   const [, startTransition] = useTransition();
+  const pendingItems = useRef(new Set<string>());
 
   useEffect(() => {
     if (!today) return;
@@ -42,17 +46,25 @@ export function DashboardPlannerCard() {
 
     async function fetchSummary(targetDate: string) {
       setLoading(true);
+      setLoadError(null);
       try {
         const res = await getPlannerDashboardSummary(targetDate);
-        if (!cancelled && res.data) {
+        if (!cancelled) {
           setSummary(res.data);
-          setItems({
-            next3Days: res.data.next3Days,
-            overdue: res.data.overdue,
-          });
+          setLoadError(res.error);
+          if (res.data) {
+            setItems({
+              next3Days: res.data.next3Days,
+              overdue: res.data.overdue,
+            });
+          }
         }
       } catch (err) {
         console.error("Failed to load planner dashboard summary:", err);
+        if (!cancelled) {
+          setSummary(null);
+          setLoadError("Could not load planner data. Please try again.");
+        }
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -68,6 +80,9 @@ export function DashboardPlannerCard() {
   }, [today]);
 
   function handleToggle(item: PlannerSummaryItem) {
+    if (pendingItems.current.has(item.id)) return;
+    pendingItems.current.add(item.id);
+    setMutationError(null);
     const isNowDone = !item.isDone;
 
     // Optimistically update
@@ -84,6 +99,7 @@ export function DashboardPlannerCard() {
     });
 
     startTransition(async () => {
+      let saved = false;
       try {
         if (item.kind === "assignment") {
           const res = await toggleAssignmentStatus(
@@ -94,6 +110,21 @@ export function DashboardPlannerCard() {
               : undefined
           );
           if (res.error) throw new Error(res.error);
+        } else if (item.isVirtual && item.parentSeriesId && item.originalDueDate
+          && item.templateSubtaskId) {
+          const res = await completeVirtualDashboardSubtask({
+            seriesId: item.parentSeriesId,
+            originalDueDate: item.originalDueDate,
+            templateSubtaskId: item.templateSubtaskId,
+          });
+          if (res.error) throw new Error(res.error);
+          saved = true;
+          const refreshed = await getPlannerDashboardSummary(today!);
+          if (!refreshed.data) throw new Error("Saved, but could not refresh Planner. Reload the page.");
+          setSummary(refreshed.data);
+          setItems({ next3Days: refreshed.data.next3Days, overdue: refreshed.data.overdue });
+        } else if (item.isVirtual) {
+          throw new Error("This recurring subtask is unavailable. Refresh and try again.");
         } else {
           const res = await toggleSubtask(
             item.id,
@@ -104,6 +135,20 @@ export function DashboardPlannerCard() {
         }
       } catch (err) {
         console.error("Failed to update item status:", err);
+        setMutationError(err instanceof Error ? err.message : "Could not update this item. Please try again.");
+        if (item.isVirtual && item.kind === "subtask" && !saved) {
+          try {
+            const refreshed = await getPlannerDashboardSummary(today!);
+            if (refreshed.data) {
+              setSummary(refreshed.data);
+              setItems({ next3Days: refreshed.data.next3Days, overdue: refreshed.data.overdue });
+              return;
+            }
+          } catch (refreshError) {
+            console.error("Could not refresh Planner after a subtask conflict:", refreshError);
+          }
+        }
+        if (saved) return;
         // Roll back on error
         setItems((prev) => {
           const restoreItem = (list: PlannerSummaryItem[]) => {
@@ -119,6 +164,8 @@ export function DashboardPlannerCard() {
             overdue: restoreItem(prev.overdue),
           };
         });
+      } finally {
+        pendingItems.current.delete(item.id);
       }
     });
   }
@@ -153,6 +200,14 @@ export function DashboardPlannerCard() {
         </div>
       </section>
     );
+  }
+
+  if (loadError) {
+    return <section className="rounded-xl border border-border/80 bg-card p-5 shadow-xs" aria-label="Academic Planner">
+      <h2 className="text-base font-semibold text-foreground">Planner</h2>
+      <p role="alert" className="mt-2 text-sm text-muted-foreground">{loadError}</p>
+      <Link href="/planner" className="mt-3 inline-block text-sm font-semibold text-brand-ink hover:underline">Open planner</Link>
+    </section>;
   }
 
   // Empty state: No semesters exist
@@ -278,6 +333,8 @@ export function DashboardPlannerCard() {
           View planner <ArrowRight className="size-3" />
         </Link>
       </div>
+
+      {mutationError && <p role="alert" className="mt-3 text-xs text-rose-800">{mutationError}</p>}
 
       {/* OVERDUE Section (rendered ONLY if overdue items exist) */}
       {visibleOverdue.length > 0 && (

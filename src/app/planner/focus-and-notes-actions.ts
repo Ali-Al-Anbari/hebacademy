@@ -396,11 +396,24 @@ export async function reorderWeeklyFocusItems({
   if (!context) {
     return { error: "Semester could not be verified." };
   }
-  if (!Array.isArray(orderedIds) || orderedIds.some((id) => !isId(id))) {
+  if (!Array.isArray(orderedIds) || orderedIds.some((id) => !isId(id))
+    || new Set(orderedIds).size !== orderedIds.length) {
     return { error: "Invalid order data." };
   }
 
-  await Promise.all(
+  const { data: currentItems, error: loadError } = await context.supabase
+    .from("planner_weekly_focus_items")
+    .select("id")
+    .eq("user_id", context.userId)
+    .eq("semester_id", semesterId)
+    .eq("week_start", weekStart);
+  if (loadError || !currentItems || currentItems.length !== orderedIds.length
+    || currentItems.some((item) => !orderedIds.includes(item.id))) {
+    if (loadError) console.error("Could not verify weekly focus order:", loadError);
+    return { error: "The weekly focus list changed. Refresh and try again." };
+  }
+
+  const results = await Promise.all(
     orderedIds.map((id, index) =>
       context.supabase
         .from("planner_weekly_focus_items")
@@ -409,8 +422,15 @@ export async function reorderWeeklyFocusItems({
         .eq("user_id", context.userId)
         .eq("semester_id", semesterId)
         .eq("week_start", weekStart)
+        .select("id")
+        .maybeSingle()
     )
   );
+  if (results.some((result) => result.error || !result.data)) {
+    console.error("Could not reorder weekly focus items:", results.filter((result) => result.error).map((result) => result.error));
+    revalidatePath("/planner");
+    return { error: "The order could not be fully saved. Refresh and try again." };
+  }
 
   revalidatePath("/planner");
   return { error: null };

@@ -101,8 +101,27 @@ export function PlannerWorkspace({
     const params = new URLSearchParams(window.location.search);
     const assignId = params.get("assignment");
     if (!assignId) return null;
-    return assignments.find((a) => a.id === assignId) ?? null;
-  }, [assignments]);
+    const direct = assignments.find((a) => a.id === assignId);
+    if (direct) return direct;
+    const virtual = parseVirtualAssignmentId(assignId);
+    if (!virtual) return null;
+    const root = assignments.find((a) => a.id === virtual.rootId);
+    if (!root) return null;
+    const materialized = assignments.find((a) => a.parent_series_id === virtual.rootId
+      && a.original_due_date === virtual.occurrenceDate);
+    if (materialized) return materialized;
+    const semester = semesters.find((item) => item.id === root.semester_id);
+    if (!semester) return null;
+    return resolveEffectiveAssignments({
+      assignments: [root],
+      exceptions: assignmentExceptions.filter((item) => item.parent_series_id === root.id),
+      semester,
+      rangeStart: virtual.occurrenceDate,
+      rangeEnd: virtual.occurrenceDate,
+      urls: urls.filter((item) => item.assignment_id === root.id),
+      subtasks: subtasks.filter((item) => item.assignment_id === root.id),
+    }).assignments.find((item) => item.isVirtual && item.originalOccurrenceDate === virtual.occurrenceDate) ?? null;
+  }, [assignments, assignmentExceptions, semesters, subtasks, urls]);
 
   const [selectedId, setSelectedId] = useState<string | null>(
     () => targetFromUrl?.semester_id ?? null

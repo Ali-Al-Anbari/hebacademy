@@ -138,10 +138,12 @@ export function WeeklyFocus({
     if (togglingId) return;
     setTogglingId(item.id);
     try {
-      await toggleFreeformFocusItem(item.id, item.is_done);
-      onSaved();
+      const result = await toggleFreeformFocusItem(item.id, item.is_done);
+      if (result.error) alert(result.error);
+      else onSaved();
     } catch (err) {
       console.error("Failed to toggle focus item:", err);
+      alert("Could not update this focus item. Please try again.");
     } finally {
       setTogglingId(null);
     }

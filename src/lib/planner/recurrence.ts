@@ -79,13 +79,11 @@ export function generateAssignmentOccurrences(
 
   // Recurrence rule bounds
   const seriesStart = series.due_date;
-  let hardEnd = semester.end_date;
-
-  if (series.recurrence_end_kind === "date" && series.recurrence_until) {
-    if (series.recurrence_until < hardEnd) {
-      hardEnd = series.recurrence_until;
-    }
-  }
+  const hardEnd = series.recurrence_end_kind === "semester_end"
+    ? semester.end_date
+    : series.recurrence_end_kind === "date" && series.recurrence_until
+      ? series.recurrence_until
+      : rangeEnd;
 
   // If the entire series occurs after rangeEnd or before rangeStart, or end < start
   if (seriesStart > rangeEnd || seriesStart > hardEnd) {
