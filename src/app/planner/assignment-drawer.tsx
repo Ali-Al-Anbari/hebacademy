@@ -94,6 +94,7 @@ type Props = {
   assignments?: PlannerAssignment[];
   assignment: (PlannerAssignment | EffectiveAssignment) | null;
   initialDate?: string | null;
+  initialTime?: string | null;
   initialCourseId?: string | null;
   weeklyFocusItems?: PlannerWeeklyFocusItem[];
   activeWeekStart?: string;
@@ -157,6 +158,7 @@ function AssignmentDrawerForm({
   assignments = [],
   assignment,
   initialDate,
+  initialTime,
   initialCourseId,
   weeklyFocusItems = [],
   activeWeekStart,
@@ -210,7 +212,7 @@ function AssignmentDrawerForm({
   const [startDate, setStartDate] = useState(assignment?.start_date ?? "");
   const [dueDate, setDueDate] = useState(initialDue);
   const [dueTime, setDueTime] = useState(
-    assignment?.due_time ? assignment.due_time.slice(0, 5) : ""
+    assignment?.due_time ? assignment.due_time.slice(0, 5) : initialTime ?? ""
   );
   const [typeKind, setTypeKind] = useState<AssignmentTypeKind>(
     assignment?.type_kind ?? "homework"
@@ -1751,6 +1753,7 @@ export function AssignmentDrawer(props: Props) {
           {props.isOpen && props.assignment && mode === "overview" && (
             <AssignmentOverview
               assignment={props.assignment}
+              assignments={props.assignments ?? []}
               draft={draft}
               courses={props.courses}
               customTypes={props.customTypes}
@@ -1783,6 +1786,7 @@ export function AssignmentDrawer(props: Props) {
               assignments={props.assignments}
               assignment={props.assignment}
               initialDate={props.initialDate}
+              initialTime={props.initialTime}
               initialCourseId={props.initialCourseId}
               weeklyFocusItems={props.weeklyFocusItems}
               activeWeekStart={props.activeWeekStart}

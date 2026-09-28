@@ -154,7 +154,7 @@ button:disabled:hover { transform: none; }
 .planner-calendar .fc-event {
   cursor: pointer;
   border-radius: 4px;
-  padding: 1px 3px;
+  padding: 0 2px;
   border: 1px solid #ebdbe2;
   background: #fff;
   color: var(--color-ink);
@@ -185,16 +185,16 @@ button:disabled:hover { transform: none; }
 .planner-cal-assignment {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   width: 100%;
   min-width: 0;
-  padding: 1px 4px;
+  padding: 1px 3px;
   font-size: .78rem;
-  line-height: 1.25;
+  line-height: 1.2;
   border-radius: 3px;
 }
 .planner-cal-assignment--done {
-  opacity: 0.6;
+  opacity: 0.7;
 }
 .planner-cal-assignment--done .planner-cal-title {
   text-decoration: line-through;
@@ -222,6 +222,8 @@ button:disabled:hover { transform: none; }
   font-weight: 800;
   line-height: 1;
 }
+.planner-cal-done-mark { flex-shrink: 0; font-size: .72rem; font-weight: 800; color: #63565b; }
+.planner-cal-overdue { flex-shrink: 0; color: #a22c42; font-size: .65rem; font-weight: 750; }
 
 /* Spreadsheet List Table */
 .planner-sheet-wrap {
@@ -249,6 +251,8 @@ button:disabled:hover { transform: none; }
   .planner-calendar:has(.fc-timegrid) .fc { min-width: 660px; }
   .planner-calendar .fc { font-size: .75rem; }
   .planner-calendar .fc-event { padding: 1px; }
+  .planner-cal-assignment { padding-inline: 2px; }
+  .planner-cal-overdue { font-size: .6rem; }
   .planner-presence-dot:nth-child(n+4), .planner-presence-more { display: none; }
 }
 

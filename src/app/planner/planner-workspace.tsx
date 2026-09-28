@@ -139,6 +139,7 @@ export function PlannerWorkspace({
   const [drawerKey, setDrawerKey] = useState(0);
   const [drawerSavedId, setDrawerSavedId] = useState<string | null>(null);
   const [drawerInitialDate, setDrawerInitialDate] = useState<string | null>(null);
+  const [drawerInitialTime, setDrawerInitialTime] = useState<string | null>(null);
   const [drawerInitialCourseId, setDrawerInitialCourseId] = useState<string | null>(null);
   const [createdCustomTypes, setCreatedCustomTypes] = useState<PlannerCustomType[]>([]);
 
@@ -225,11 +226,12 @@ export function PlannerWorkspace({
     router.refresh();
   }
 
-  function handleOpenNewAssignment(initialDate?: string, initialCourseId?: string | null) {
+  function handleOpenNewAssignment(initialDate?: string, initialCourseId?: string | null, initialTime?: string | null) {
     setDrawerKey((value) => value + 1);
     setDrawerSavedId(null);
     setEditingAssignment(null);
     setDrawerInitialDate(initialDate ?? null);
+    setDrawerInitialTime(initialTime ?? null);
     setDrawerInitialCourseId(initialCourseId ?? null);
     setDrawerOpen(true);
   }
@@ -239,6 +241,7 @@ export function PlannerWorkspace({
     setDrawerSavedId(null);
     setEditingAssignment(assignment);
     setDrawerInitialDate(null);
+    setDrawerInitialTime(null);
     setDrawerInitialCourseId(null);
     setDrawerOpen(true);
   }
@@ -551,6 +554,7 @@ export function PlannerWorkspace({
             assignments={selectedAssignments}
             assignment={currentDrawerAssignment}
             initialDate={drawerInitialDate}
+            initialTime={drawerInitialTime}
             initialCourseId={drawerInitialCourseId}
             weeklyFocusItems={selectedWeeklyFocus}
             activeWeekStart={activeWeekStart}

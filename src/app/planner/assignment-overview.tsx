@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { Check, ExternalLink, FileText, Pencil, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { displayTime, formatCalendarDate, WEEKDAY_SHORT } from "@/lib/planner/dates";
+import { displayTime, formatCalendarDate, weekdayOf, WEEKDAY_SHORT } from "@/lib/planner/dates";
 import {
   ASSIGNMENT_TYPE_LABELS,
   type AssignmentDraft,
@@ -25,12 +25,34 @@ import {
 } from "@/lib/planner/types";
 import { getAttachmentSignedUrlAction, toggleAssignmentStatus } from "./assignment-actions";
 
+function recurrenceSummary(assignment: PlannerAssignment) {
+  const day = WEEKDAY_SHORT[weekdayOf(assignment.due_date) - 1];
+  const monthlyDay = Number(assignment.due_date.slice(8, 10));
+  const weekdays = assignment.recurrence_weekdays ?? [];
+  const suffix = monthlyDay >= 11 && monthlyDay <= 13 ? "th"
+    : monthlyDay % 10 === 1 ? "st" : monthlyDay % 10 === 2 ? "nd"
+      : monthlyDay % 10 === 3 ? "rd" : "th";
+  const pattern = assignment.recurrence_kind === "daily" ? "Every day"
+    : assignment.recurrence_kind === "selected_weekdays"
+      ? weekdays.length === 5 && [1, 2, 3, 4, 5].every((value) => weekdays.includes(value))
+        ? "Every weekday" : `Every ${weekdays.map((value) => WEEKDAY_SHORT[value - 1]).join(", ")}`
+      : assignment.recurrence_kind === "weekly" ? `Every ${day}`
+      : assignment.recurrence_kind === "every_x_weeks" ? `Every ${assignment.recurrence_interval} ${assignment.recurrence_interval === 1 ? "week" : "weeks"} on ${day}`
+      : assignment.recurrence_kind === "monthly" ? `Monthly on the ${monthlyDay}${suffix}`
+      : "";
+  const end = assignment.recurrence_end_kind === "semester_end" ? "Ends at semester end"
+    : assignment.recurrence_end_kind === "date" && assignment.recurrence_until
+      ? `Ends ${formatCalendarDate(assignment.recurrence_until)}` : "Never ends";
+  return pattern ? `${pattern} · ${end}` : "";
+}
+
 export function AssignmentOverview({
-  assignment, draft, courses, customTypes, urls, subtasks, attachments, attachmentRefs,
+  assignment, assignments, draft, courses, customTypes, urls, subtasks, attachments, attachmentRefs,
   hebacademyCourses, hebacademyDecks, assignmentDecks, studySchedules, assignmentStudySchedules,
   scheduleProgress, onEdit, onClose, onSaved,
 }: {
   assignment: PlannerAssignment | EffectiveAssignment;
+  assignments: PlannerAssignment[];
   draft?: AssignmentDraft | null;
   courses: PlannerCourse[];
   customTypes: PlannerCustomType[];
@@ -74,11 +96,11 @@ export function AssignmentOverview({
   const status = statusOverride ?? draft?.status ?? assignment.status;
   const recurring = Boolean(assignment.parent_series_id || assignment.recurrence_kind !== "none" || virtual);
   const originalDate = (assignment as EffectiveAssignment).originalOccurrenceDate ?? assignment.original_due_date;
-  const recurrenceText = assignment.recurrence_kind === "every_x_weeks"
-    ? `Repeats every ${assignment.recurrence_interval} weeks.`
-    : assignment.recurrence_kind === "selected_weekdays"
-      ? `Repeats ${assignment.recurrence_weekdays?.map((day) => WEEKDAY_SHORT[day - 1]).join(", ") ?? "on selected weekdays"}.`
-      : `Repeats ${assignment.recurrence_kind}.`;
+  const recurrenceRoot = assignment.parent_series_id
+    ? assignments.find((item) => item.id === assignment.parent_series_id) ?? assignment
+    : virtual ? assignments.find((item) => item.id === sourceId) ?? assignment : assignment;
+  const recurrenceText = recurrenceSummary(recurrenceRoot);
+  const completedSubtasks = assignmentSubtasks.filter((task) => task.is_done).length;
 
   async function toggleStatus() {
     if (pending.current) return;
@@ -148,16 +170,16 @@ export function AssignmentOverview({
         <div className="flex items-center justify-between gap-3">
           <span><strong>Status:</strong> {status === "done" ? "Done" : status === "in_progress" ? "In progress" : "Not started"}</span>
           <Button type="button" size="sm" variant="secondary" disabled={busy} onClick={() => void toggleStatus()}>
-            {status === "done" ? "Reopen" : "Mark complete"}
+            {busy ? "Updating…" : status === "done" ? "Reopen" : "Mark complete"}
           </Button>
         </div>
+        {recurring && <div className="border-t border-border/80 pt-4 text-sm text-muted-foreground"><strong className="text-ink">Repeats</strong><p className="mt-1">{recurrenceText}</p>{(assignment.parent_series_id || virtual) && originalDate && <p className="mt-1 text-xs">This occurrence was originally due {formatCalendarDate(originalDate)}.</p>}</div>}
         {(draft?.description ?? assignment.description) && <section className="space-y-1.5 border-t border-border/80 pt-4"><h3 className="font-semibold">Description</h3><p className="whitespace-pre-wrap leading-relaxed text-muted-foreground">{draft?.description ?? assignment.description}</p></section>}
-        {assignmentSubtasks.length > 0 && <section className="space-y-2 border-t border-border/80 pt-4"><h3 className="font-semibold">Subtasks</h3><ul className="space-y-2">{assignmentSubtasks.map((task, index) => <li key={task.id ?? index} className="flex items-start gap-2"><span aria-hidden="true" className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm border border-current">{task.is_done && <Check className="size-3" />}</span><span className={task.is_done ? "text-muted-foreground line-through" : ""}>{task.title}{task.due_date && <small className="ml-2 text-muted-foreground">{formatCalendarDate(task.due_date)}</small>}</span></li>)}</ul></section>}
-        {assignmentUrls.length > 0 && <section className="space-y-2 border-t border-border/80 pt-4"><h3 className="font-semibold">Links</h3><ul className="space-y-1.5">{assignmentUrls.map((link, index) => <li key={link.id ?? index}><a href={link.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-brand-ink underline underline-offset-2 break-all">{link.label || link.url}<ExternalLink className="size-3.5 shrink-0" /></a></li>)}</ul></section>}
-        {assignmentAttachments.length > 0 && <section className="space-y-2 border-t border-border/80 pt-4"><h3 className="font-semibold">Attachments</h3><ul className="space-y-1">{assignmentAttachments.map((item) => <li key={item.id}><button type="button" disabled={busy} onClick={() => void openAttachment(item.id)} className="inline-flex items-center gap-2 py-1 text-left text-brand-ink underline underline-offset-2"><FileText className="size-4 shrink-0" />{item.file_name}</button></li>)}</ul></section>}
+        {assignmentSubtasks.length > 0 && <section className="space-y-2 border-t border-border/80 pt-4"><div className="flex items-center justify-between gap-2"><h3 className="font-semibold">Subtasks</h3><span className="text-xs text-muted-foreground">{completedSubtasks} / {assignmentSubtasks.length} complete</span></div><ul className="space-y-2">{assignmentSubtasks.map((task, index) => <li key={task.id ?? index} className="flex items-start gap-2"><span aria-hidden="true" className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm border border-current">{task.is_done && <Check className="size-3" />}</span><span className={task.is_done ? "text-muted-foreground line-through" : ""}>{task.title}{task.due_date && <small className="ml-2 text-muted-foreground">{formatCalendarDate(task.due_date)}</small>}</span></li>)}</ul></section>}
+        {assignmentUrls.length > 0 && <section className="space-y-2 border-t border-border/80 pt-4"><h3 className="font-semibold">Links</h3><ul className="divide-y divide-border/60">{assignmentUrls.map((link, index) => <li key={link.id ?? index} className="flex min-w-0 items-center justify-between gap-3 py-2"><span className="min-w-0 truncate" title={link.label || link.url}>{link.label || link.url}</span><a href={link.url} target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 items-center gap-1 text-brand-ink underline-offset-2 hover:underline" aria-label={`Open ${link.label || link.url} in a new tab`}>Open <ExternalLink className="size-3.5" /></a></li>)}</ul></section>}
+        {assignmentAttachments.length > 0 && <section className="space-y-2 border-t border-border/80 pt-4"><h3 className="font-semibold">Attachments</h3><ul className="divide-y divide-border/60">{assignmentAttachments.map((item) => <li key={item.id} className="flex min-w-0 items-center justify-between gap-3 py-2"><span className="flex min-w-0 items-center gap-2"><FileText className="size-4 shrink-0 text-muted-foreground" /><span className="truncate" title={item.file_name}>{item.file_name}</span></span><button type="button" disabled={busy} onClick={() => void openAttachment(item.id)} className="shrink-0 text-brand-ink underline-offset-2 hover:underline" aria-label={`Open attachment ${item.file_name}`}>Open</button></li>)}</ul></section>}
         {linkedDecks.length > 0 && <section className="space-y-2 border-t border-border/80 pt-4"><h3 className="font-semibold">Study materials</h3><ul className="divide-y divide-border/60">{linkedDecks.map((deck) => <li key={deck.id} className="flex items-center justify-between gap-2 py-2"><span>{deck.name}<small className="ml-2 text-muted-foreground">{hebacademyCourses.find((item) => item.id === deck.course_id)?.name}</small></span><Link href={`/courses/${deck.course_id}/decks/${deck.id}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>Open</Link></li>)}</ul></section>}
         {linkedSchedules.length > 0 && <section className="space-y-2 border-t border-border/80 pt-4"><h3 className="font-semibold">Study plan</h3><ul className="divide-y divide-border/60">{linkedSchedules.map((schedule) => <li key={schedule.id} className="flex items-center justify-between gap-2 py-2"><span>{schedule.name}{scheduleProgress[schedule.id] && <small className="ml-2 text-muted-foreground">{scheduleProgress[schedule.id].completed} of {scheduleProgress[schedule.id].total} reviews</small>}</span><Link href={`/study-schedules/${schedule.id}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>Open</Link></li>)}</ul></section>}
-        {recurring && <section className="border-t border-border/80 pt-4 text-muted-foreground"><strong className="text-ink">Recurrence</strong><p className="mt-1">{assignment.parent_series_id || virtual ? `This occurrence of a recurring series${originalDate ? ` (originally ${formatCalendarDate(originalDate)})` : ""}.` : recurrenceText}</p></section>}
       </div>
     </>
   );

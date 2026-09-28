@@ -16,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   displayTime,
-  formatShortDate,
   meetingOccurrences,
   nextCalendarDay,
   prevCalendarDay,
@@ -118,20 +117,18 @@ export function PlannerCalendar({
   today?: string;
   onEditRecurring: (courseId: string) => void;
   onOpenAssignment: (assignment: PlannerAssignment | EffectiveAssignment) => void;
-  onAddAssignment: (initialDate?: string, initialCourseId?: string | null) => void;
+  onAddAssignment: (initialDate?: string, initialCourseId?: string | null, initialTime?: string | null) => void;
   onTogglePinAssignment?: (assignmentId: string) => void;
   onSaved: () => void;
 }) {
   const calendar = useRef<CalendarRef>(null);
   const inFlight = useRef(false);
-  const lastClickRef = useRef<{ date: string; time: number } | null>(null);
 
   const [view, setView] = useState<"dayGridMonth" | "timeGridWeek" | "list">(() => {
     return viewModeToFC(getSavedPlannerView());
   });
   const [title, setTitle] = useState("");
   const [visibleRange, setVisibleRange] = useState<{ start: string; end: string } | null>(null);
-  const [tappedDate, setTappedDate] = useState<string | null>(null);
 
   // Meeting occurrence edit dialog state
   const [selectedMeeting, setSelectedMeeting] = useState<MeetingOccurrence | null>(null);
@@ -182,23 +179,10 @@ export function PlannerCalendar({
     }
   }
 
-  function handleDateClick(info: { dateStr: string }) {
-    const clicked = info.dateStr.slice(0, 10);
-    const now = Date.now();
-
-    if (
-      lastClickRef.current &&
-      lastClickRef.current.date === clicked &&
-      now - lastClickRef.current.time < 350
-    ) {
-      // Desktop double click
-      lastClickRef.current = null;
-      setTappedDate(null);
-      onAddAssignment(clicked);
-    } else {
-      lastClickRef.current = { date: clicked, time: now };
-      setTappedDate(clicked);
-    }
+  function handleDateClick(info: { dateStr: string; jsEvent: MouseEvent }) {
+    if ((info.jsEvent.target as Element).closest(".fc-event, .fc-more-link, .planner-month-meeting-dot, button, a, input")) return;
+    const time = info.dateStr.match(/T(\d{2}:\d{2})/)?.[1] ?? null;
+    onAddAssignment(info.dateStr.slice(0, 10), null, time);
   }
 
   async function changeMeeting(event: FormEvent<HTMLFormElement>) {
@@ -365,7 +349,6 @@ export function PlannerCalendar({
     savePlannerView(fcToViewMode(next));
     if (next !== "list") {
       calendar.current?.getApi().changeView(next);
-      setTappedDate(null);
     }
   }
 
@@ -448,38 +431,6 @@ export function PlannerCalendar({
           </Button>
         </div>
       </div>
-
-      {/* Tapped Date Selection Banner (Mobile/Quick add) */}
-      {tappedDate && view !== "list" && (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand-200 bg-brand-50/80 px-3.5 py-2 text-xs">
-          <span>
-            Selected day: <strong>{formatShortDate(tappedDate)}</strong> ({tappedDate})
-          </span>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              className="h-7 text-xs font-semibold gap-1"
-              onClick={() => {
-                onAddAssignment(tappedDate);
-                setTappedDate(null);
-              }}
-            >
-              <Plus className="size-3" />
-              Add assignment
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setTappedDate(null)}
-            >
-              Dismiss
-            </Button>
-          </div>
-        </div>
-      )}
 
       {/* Calendar surface (kept mounted to preserve state) */}
       <div className={view === "list" ? "hidden" : "block"}>
@@ -613,6 +564,7 @@ export function PlannerCalendar({
                 const assignment = info.event.extendedProps.assignment as PlannerAssignment;
                 const isDone = assignment.status === "done";
                 const isImportant = assignment.priority === "important";
+                const isOverdue = !isDone && Boolean(today && assignment.due_date < today);
 
                 return (
                   <span
@@ -624,7 +576,9 @@ export function PlannerCalendar({
                         !
                       </span>
                     )}
+                    {isDone && <span className="planner-cal-done-mark" aria-label="Completed" title="Completed">✓</span>}
                     <span className="planner-cal-title truncate" style={{ color: textColor }}>{info.event.title}</span>
+                    {isOverdue && <span className="planner-cal-overdue" title="Overdue">Late</span>}
                   </span>
                 );
               }
@@ -642,7 +596,7 @@ export function PlannerCalendar({
           />
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Double-click an empty day to add an assignment. Click an assignment to view details{view === "timeGridWeek" ? " or a class meeting to manage it" : ""}.
+          Click an empty {view === "timeGridWeek" ? "time slot" : "day"} to add an assignment. Click an assignment to view details{view === "timeGridWeek" ? " or a class meeting to manage it" : ""}.
         </p>
       </div>
 
