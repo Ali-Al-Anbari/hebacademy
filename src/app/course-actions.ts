@@ -14,6 +14,16 @@ async function authenticatedClient() {
   return { supabase, userId: data.claims.sub };
 }
 
+export async function recordCourseVisit(courseId: string): Promise<void> {
+  if (typeof courseId !== "string" || !validId(courseId)) return;
+  const supabase = await createClient();
+  const { data, error: authError } = await supabase.auth.getClaims();
+  if (authError || !data?.claims?.sub) return;
+
+  const { error } = await supabase.rpc("record_course_visit", { p_course_id: courseId });
+  if (error) console.error("Failed to record course visit:", error);
+}
+
 export async function createCourse(name: string) {
   const { supabase, userId } = await authenticatedClient();
   const trimmedName = typeof name === "string" ? name.trim() : "";

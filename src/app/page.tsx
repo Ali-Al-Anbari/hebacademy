@@ -20,7 +20,9 @@ export default async function DashboardPage() {
     .from("courses")
     .select("id, name, decks(count)")
     .eq("user_id", data.claims.sub)
-    .order("created_at", { ascending: false });
+    .order("last_visited_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: true });
   if (coursesError) console.error("Failed to load courses:", coursesError);
 
   const { data: schedules, error: schedulesError } = await supabase

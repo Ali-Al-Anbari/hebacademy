@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { DeckManager } from "./deck-manager";
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
+import { CourseVisitTracker } from "@/components/course-visit-tracker";
 
 const validId = (id: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -42,6 +43,7 @@ export default async function CoursePage({ params }: PageProps<"/courses/[course
 
   return (
     <main className="page-container">
+      <CourseVisitTracker courseId={courseId} />
       <AppBreadcrumb items={[{ label: "Dashboard", href: "/" }]} current={course.name} />
 
       {decksError ? (

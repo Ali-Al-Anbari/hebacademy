@@ -8,6 +8,7 @@ import { StartStudyButton } from "./study/start-button";
 import { StudySelection } from "./study/selection";
 import { buttonVariants } from "@/components/ui/button";
 import { AppBreadcrumb } from "@/components/app-breadcrumb";
+import { CourseVisitTracker } from "@/components/course-visit-tracker";
 import { readAnswers, readQuestions } from "@/lib/quiz-session";
 import type { StudyFilter } from "@/lib/study-filter";
 import { getOwnedStudyCards } from "@/lib/study-data";
@@ -141,6 +142,7 @@ export default async function DeckPage({
 
   return (
     <main className="page-container">
+      {deck && <CourseVisitTracker courseId={courseId} />}
       <AppBreadcrumb items={[{ label: "Dashboard", href: "/" }, { label: course?.name ?? "Course", href: `/courses/${courseId}` }]} current={deck?.name ?? "Deck"} />
       {courseError || deckResult?.error || cardResult?.error ? (
         <p role="alert" className="notice-error mt-9">Could not load this deck. Please refresh and try again.</p>
