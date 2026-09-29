@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Calendar,
   Check,
@@ -98,6 +98,21 @@ export function AssignmentListView({
   const [savingNote, setSavingNote] = useState<boolean>(false);
 
   const todayRowRef = useRef<HTMLTableRowElement | null>(null);
+  const didAutoScroll = useRef(false);
+
+  useEffect(() => {
+    if (didAutoScroll.current) return;
+    didAutoScroll.current = true;
+    const row = todayRowRef.current;
+    if (!row) return;
+    const bounds = row.getBoundingClientRect();
+    if (bounds.top >= 0 && bounds.bottom <= window.innerHeight) return;
+    row.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "center",
+      inline: "nearest",
+    });
+  }, []);
 
   // Compute set of course meeting dates in semester
   const meetingCourseDates = useMemo(() => {
