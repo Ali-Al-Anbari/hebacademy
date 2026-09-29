@@ -233,6 +233,7 @@ export type PlannerWeeklyFocusItem = {
   id: string;
   semester_id: string;
   week_start: string;
+  focus_date: string;
   position: number;
   title: string | null;
   is_done: boolean;

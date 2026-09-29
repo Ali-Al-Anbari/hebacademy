@@ -1,479 +1,191 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
-import {
-  ArrowDown,
-  ArrowUp,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  PinOff,
-  Plus,
-  Trash2,
-} from "lucide-react";
-import {
-  addDays,
-  formatShortDate,
-  formatWeekRange,
-  getMondayOfWeek,
-} from "@/lib/planner/dates";
-import type {
-  EffectiveAssignment,
-  PlannerAssignment,
-  PlannerCourse,
-  PlannerWeeklyFocusItem,
-  Semester,
-} from "@/lib/planner/types";
-import {
-  addFreeformFocusItem,
-  deleteWeeklyFocusItem,
-  reorderWeeklyFocusItems,
-  toggleFreeformFocusItem,
-} from "./focus-and-notes-actions";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Check, ChevronLeft, ChevronRight, Ellipsis, Plus } from "lucide-react";
+import { addDays, formatShortDate, formatWeekRange, getMondayOfWeek } from "@/lib/planner/dates";
+import type { EffectiveAssignment, PlannerAssignment, PlannerCourse, PlannerWeeklyFocusItem, Semester } from "@/lib/planner/types";
+import { addFreeformFocusItem, deleteWeeklyFocusItem, moveWeeklyFocusItem, pinAssignmentToFocus, reorderWeeklyFocusItems, saveWeeklyNotepad, toggleFreeformFocusItem, updateWeeklyFocusItemText } from "./focus-and-notes-actions";
 
 type Props = {
-  semester: Semester;
-  weekStart: string;
-  onWeekChange: (newWeekStart: string) => void;
-  today: string;
-  courses: PlannerCourse[];
-  assignments: (PlannerAssignment | EffectiveAssignment)[];
-  focusItems: PlannerWeeklyFocusItem[];
+  semester: Semester; weekStart: string; onWeekChange: (week: string) => void; today: string;
+  courses: PlannerCourse[]; assignments: (PlannerAssignment | EffectiveAssignment)[];
+  focusItems: PlannerWeeklyFocusItem[]; notepadBody: string;
+  instanceId: string;
+  onNotepadChange: (semesterId: string, weekStart: string, body: string) => void;
   onOpenAssignment: (assignment: PlannerAssignment | EffectiveAssignment) => void;
   onToggleAssignmentStatus: (assignment: PlannerAssignment | EffectiveAssignment) => void;
   onSaved: () => void;
 };
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-export function WeeklyFocus({
-  semester,
-  weekStart,
-  onWeekChange,
-  today,
-  courses,
-  assignments,
-  focusItems,
-  onOpenAssignment,
-  onToggleAssignmentStatus,
-  onSaved,
-}: Props) {
+function WeekNotepad({ semesterId, weekStart, initialBody: body, instanceId, onChange }: { semesterId: string; weekStart: string; initialBody: string; instanceId: string; onChange: (semesterId: string, weekStart: string, body: string) => void }) {
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const version = useRef(0);
+  const saved = useRef(body);
+  const currentBody = useRef(body);
+  const isVisible = () => instanceId === "desktop" ? window.matchMedia("(min-width: 1280px)").matches : !window.matchMedia("(min-width: 1280px)").matches;
+  useEffect(() => () => {
+    if (isVisible() && currentBody.current !== saved.current) {
+      void saveWeeklyNotepad({ semesterId, weekStart, body: currentBody.current });
+    }
+    // The component is keyed by semester/week; cleanup retains this week's identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [semesterId, weekStart]);
+  useEffect(() => {
+    currentBody.current = body;
+    if (body === saved.current || !isVisible()) return;
+    const timer = window.setTimeout(async () => {
+      const current = ++version.current;
+      setStatus("saving");
+      try {
+        const result = await saveWeeklyNotepad({ semesterId, weekStart, body });
+        if (current !== version.current) return;
+        if (result.error) setStatus("error");
+        else { saved.current = body; setStatus("saved"); }
+      } catch { if (current === version.current) setStatus("error"); }
+    }, 700);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [body, semesterId, weekStart]);
+  return <div className="border-t border-[#ebd5dd] pt-3">
+    <div className="mb-1 flex items-center justify-between gap-2"><label htmlFor={`weekly-notepad-${instanceId}`} className="text-xs font-bold text-ink">Week notes</label>
+      <span role="status" className={`text-[10px] ${status === "error" ? "text-red-700" : "text-muted-foreground"}`}>{status === "saving" ? "Saving…" : status === "saved" ? "Saved" : status === "error" ? "Save failed — edit to retry" : ""}</span></div>
+    <textarea id={`weekly-notepad-${instanceId}`} value={body} onChange={(event) => { currentBody.current = event.target.value; onChange(semesterId, weekStart, event.target.value); setStatus("idle"); }} maxLength={20000} rows={3} placeholder="Notes for this week…" className="min-h-18 max-h-44 w-full resize-y rounded-md border border-input bg-white px-2 py-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-brand-ink [field-sizing:content]" />
+  </div>;
+}
+
+export function WeeklyFocus({ semester, weekStart, onWeekChange, today, courses, assignments, focusItems, notepadBody, instanceId, onNotepadChange, onOpenAssignment, onToggleAssignmentStatus, onSaved }: Props) {
   const [newTitle, setNewTitle] = useState("");
   const [busy, setBusy] = useState(false);
-  const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [pinPickerOpen, setPinPickerOpen] = useState(false);
+  const [pinId, setPinId] = useState("");
+  const [addDayOffset, setAddDayOffset] = useState(() => weekStart === getMondayOfWeek(today) ? Math.max(0, DAYS.findIndex((_, index) => addDays(weekStart, index) === today)) : 0);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+  const [editError, setEditError] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+  const editBusyRef = useRef(false);
+  const courseById = useMemo(() => new Map(courses.map((course) => [course.id, course])), [courses]);
+  const assignmentById = useMemo(() => new Map(assignments.map((assignment) => [assignment.id, assignment])), [assignments]);
+  const weekItems = focusItems.filter((item) => item.semester_id === semester.id && item.week_start === weekStart);
+  const weekDays = DAYS.map((name, index) => ({ name, date: addDays(weekStart, index) }));
+  const addDate = weekDays[addDayOffset].date;
+  const populatedDays = weekDays.map((day) => ({ ...day, items: weekItems.filter((item) => item.focus_date === day.date).sort((a, b) => a.position - b.position) })).filter((day) => day.items.length > 0);
 
-  const courseById = useMemo(() => new Map(courses.map((c) => [c.id, c])), [courses]);
-  const assignmentById = useMemo(() => new Map(assignments.map((a) => [a.id, a])), [assignments]);
-
-  const assignmentForItem = useMemo(() => {
-    return (item: PlannerWeeklyFocusItem): (PlannerAssignment | EffectiveAssignment) | null => {
-      if (!item.assignment_id) return null;
-      if (item.occurrence_date) {
-        const materialized = assignments.find(
-          (a) => a.parent_series_id === item.assignment_id && a.original_due_date === item.occurrence_date
-        );
-        if (materialized) return materialized;
-        const root = assignmentById.get(item.assignment_id);
-        if (root) {
-          return {
-            ...root,
-            id: `virtual:${root.id}:${item.occurrence_date}`,
-            due_date: item.occurrence_date,
-            original_due_date: item.occurrence_date,
-            parent_series_id: root.id,
-            isOccurrence: true,
-            isVirtual: true,
-            seriesRootId: root.id,
-            originalOccurrenceDate: item.occurrence_date,
-          };
-        }
-      }
-      return assignmentById.get(item.assignment_id) ?? null;
-    };
-  }, [assignments, assignmentById]);
-
-  const currentWeekMonday = useMemo(() => getMondayOfWeek(today), [today]);
-  const isCurrentWeek = weekStart === currentWeekMonday;
-
-  // Filter items for current semester and selected week
-  const weekItems = useMemo(() => {
-    return focusItems
-      .filter((item) => item.semester_id === semester.id && item.week_start === weekStart)
-      .sort((a, b) => a.position - b.position);
-  }, [focusItems, semester.id, weekStart]);
-
-  const incompleteCount = useMemo(() => {
-    return weekItems.filter((item) => {
-      if (item.assignment_id) {
-        const assignment = assignmentForItem(item);
-        return assignment ? assignment.status !== "done" : false;
-      }
-      return !item.is_done;
-    }).length;
-  }, [weekItems, assignmentForItem]);
-
-  async function handleAddFreeform(e: FormEvent) {
-    e.preventDefault();
-    const trimmed = newTitle.trim();
-    if (!trimmed || busy) return;
-    setBusy(true);
-    try {
-      const res = await addFreeformFocusItem({
-        semesterId: semester.id,
-        weekStart,
-        title: trimmed,
-      });
-      if (res.error) {
-        alert(res.error);
-      } else {
-        setNewTitle("");
-        onSaved();
-      }
-    } catch (err) {
-      console.error("Failed to add focus item:", err);
-    } finally {
-      setBusy(false);
+  function assignmentForItem(item: PlannerWeeklyFocusItem) {
+    if (!item.assignment_id) return null;
+    if (item.occurrence_date) {
+      const materialized = assignments.find((assignment) => assignment.parent_series_id === item.assignment_id && assignment.original_due_date === item.occurrence_date);
+      if (materialized) return materialized;
+      const root = assignmentById.get(item.assignment_id);
+      if (root) return { ...root, id: `virtual:${root.id}:${item.occurrence_date}`, due_date: item.occurrence_date, original_due_date: item.occurrence_date, parent_series_id: root.id, isOccurrence: true, isVirtual: true, seriesRootId: root.id, originalOccurrenceDate: item.occurrence_date } as EffectiveAssignment;
     }
+    return assignmentById.get(item.assignment_id) ?? null;
   }
 
-  async function handleToggleFreeform(item: PlannerWeeklyFocusItem) {
-    if (togglingId) return;
-    setTogglingId(item.id);
+  const incompleteCount = weekItems.filter((item) => item.assignment_id ? assignmentForItem(item)?.status !== "done" : !item.is_done).length;
+  const pinned = new Set(weekItems.filter((item) => item.assignment_id).map((item) => `${item.assignment_id}:${item.occurrence_date ?? ""}`));
+  const pinCandidates = assignments.filter((assignment) => !pinned.has(`${assignment.id}:${assignment.original_due_date ?? ""}`));
+
+  async function addItem(event: FormEvent) {
+    event.preventDefault();
+    const title = newTitle.trim();
+    if (!title || busy) return;
+    setBusy(true);
     try {
-      const result = await toggleFreeformFocusItem(item.id, item.is_done);
+      const result = await addFreeformFocusItem({ semesterId: semester.id, weekStart, focusDate: addDate, title });
       if (result.error) alert(result.error);
-      else onSaved();
-    } catch (err) {
-      console.error("Failed to toggle focus item:", err);
-      alert("Could not update this focus item. Please try again.");
-    } finally {
-      setTogglingId(null);
-    }
+      else { setNewTitle(""); onSaved(); }
+    } finally { setBusy(false); }
   }
-
-  async function handleDeleteItem(itemId: string) {
-    if (busy) return;
+  async function pinSelected() {
+    if (!pinId || busy) return;
     setBusy(true);
     try {
-      const res = await deleteWeeklyFocusItem(itemId);
-      if (res.error) {
-        alert(res.error);
-      } else {
-        onSaved();
-      }
-    } catch (err) {
-      console.error("Failed to remove focus item:", err);
-    } finally {
-      setBusy(false);
-    }
+      const result = await pinAssignmentToFocus({ semesterId: semester.id, weekStart, focusDate: addDate, assignmentId: pinId });
+      if (result.error) alert(result.error);
+      else { setPinPickerOpen(false); setPinId(""); onSaved(); }
+    } finally { setBusy(false); }
   }
-
-  async function handleMoveItem(index: number, direction: "up" | "down") {
+  async function changeItem(operation: () => Promise<{ error: string | null }>) {
     if (busy) return;
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= weekItems.length) return;
-
-    const newOrder = [...weekItems];
-    const [moved] = newOrder.splice(index, 1);
-    newOrder.splice(targetIndex, 0, moved);
-
     setBusy(true);
+    try { const result = await operation(); if (result.error) alert(result.error); else onSaved(); }
+    catch { alert("Could not update Weekly Focus. Please try again."); }
+    finally { setBusy(false); }
+  }
+  async function saveEdit(itemId: string) {
+    if (editBusyRef.current) return;
+    editBusyRef.current = true;
+    setEditBusy(true);
+    setEditError("");
     try {
-      const res = await reorderWeeklyFocusItems({
-        semesterId: semester.id,
-        weekStart,
-        orderedIds: newOrder.map((it) => it.id),
-      });
-      if (res.error) {
-        alert(res.error);
-      } else {
-        onSaved();
-      }
-    } catch (err) {
-      console.error("Failed to reorder focus items:", err);
-    } finally {
-      setBusy(false);
-    }
+      const result = await updateWeeklyFocusItemText(itemId, editText);
+      if (result.error) setEditError(result.error);
+      else { setEditingId(null); onSaved(); }
+    } catch (error) {
+      if (process.env.NODE_ENV === "development") console.error("Weekly Focus edit request failed", error);
+      setEditError("Could not save the focus item. Please try again.");
+    } finally { editBusyRef.current = false; setEditBusy(false); }
+  }
+  async function reorder(date: string, items: PlannerWeeklyFocusItem[], index: number, direction: -1 | 1) {
+    const next = index + direction;
+    if (next < 0 || next >= items.length) return;
+    const ordered = [...items];
+    [ordered[index], ordered[next]] = [ordered[next], ordered[index]];
+    await changeItem(() => reorderWeeklyFocusItems({ semesterId: semester.id, weekStart, focusDate: date, orderedIds: ordered.map((item) => item.id) }));
   }
 
-  return (
-    <section
-      className="planner-weekly-focus rounded-xl border border-[#dabac4] bg-[#fffdfd] p-3.5 shadow-xs flex flex-col gap-3"
-      aria-label="Weekly Focus checklist"
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between gap-1 border-b border-[#ebd5dd] pb-2.5">
-        <div>
-          <div className="flex items-center gap-1.5">
-            <h2 className="text-sm font-bold text-[#2A2024] tracking-tight">Weekly Focus</h2>
-            {incompleteCount > 0 && (
-              <span className="rounded-full bg-brand-ink/10 px-1.5 py-0.2 text-[10px] font-bold text-brand-ink">
-                {incompleteCount}
-              </span>
-            )}
-          </div>
-          <p className="text-[11px] text-muted-foreground">Keep your key priorities in view.</p>
-        </div>
-
-        {!isCurrentWeek && (
-          <button
-            type="button"
-            onClick={() => onWeekChange(currentWeekMonday)}
-            className="rounded bg-[#fbf0f4] hover:bg-brand-ink/10 px-2 py-0.5 text-[10px] font-semibold text-brand-ink transition-colors"
-            title="Jump to current week"
-          >
-            This week
-          </button>
-        )}
-      </div>
-
-      {/* Week Navigator */}
-      <div className="flex items-center justify-between rounded-lg bg-[#fbf0f4] px-2 py-1 text-xs">
-        <button
-          type="button"
-          onClick={() => onWeekChange(addDays(weekStart, -7))}
-          className="flex size-6 items-center justify-center rounded hover:bg-white text-muted-foreground hover:text-brand-ink transition-colors"
-          title="Previous week"
-          aria-label="Previous week"
-        >
-          <ChevronLeft className="size-4" />
-        </button>
-
-        <span className="font-semibold text-[#2A2024] text-[11px] select-none">
-          {formatWeekRange(weekStart)}
-        </span>
-
-        <button
-          type="button"
-          onClick={() => onWeekChange(addDays(weekStart, 7))}
-          className="flex size-6 items-center justify-center rounded hover:bg-white text-muted-foreground hover:text-brand-ink transition-colors"
-          title="Next week"
-          aria-label="Next week"
-        >
-          <ChevronRight className="size-4" />
-        </button>
-      </div>
-
-      {/* Focus Items List */}
-      <div className="space-y-1.5 flex-1 min-h-[5rem]">
-        {weekItems.length === 0 ? (
-          <div className="py-6 text-center text-xs text-muted-foreground">
-            <p>Nothing planned for this week yet.</p>
-          </div>
-        ) : (
-          weekItems.map((item, index) => {
-            const isFirst = index === 0;
-            const isLast = index === weekItems.length - 1;
-
-            if (item.assignment_id) {
-              // Pinned Assignment
-              const assignment = assignmentForItem(item);
-              if (!assignment) return null;
-
-              const course = assignment.planner_course_id
-                ? courseById.get(assignment.planner_course_id)
-                : null;
-              const isDone = assignment.status === "done";
-              const isImportant = assignment.priority === "important";
-
-              return (
-                <div
-                  key={item.id}
-                  className={`group/focus flex items-start gap-1.5 rounded-md border p-1.5 text-xs transition-colors ${
-                    isDone
-                      ? "border-[#ebd5dd] bg-[#fbf5f7] opacity-65"
-                      : "border-[#edd8e0] bg-white hover:border-brand-ink/40 shadow-xs"
-                  }`}
-                >
-                  {/* Completion checkbox: updates assignment directly */}
-                  <button
-                    type="button"
-                    onClick={() => onToggleAssignmentStatus(assignment)}
-                    className={`mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
-                      isDone
-                        ? "border-brand-ink bg-brand-ink text-white"
-                        : "border-input bg-white hover:border-brand-ink"
-                    }`}
-                    aria-label={
-                      isDone
-                        ? `Mark "${assignment.title}" as not started`
-                        : `Mark "${assignment.title}" as done`
-                    }
-                  >
-                    {isDone && <Check className="size-2.5 stroke-[3]" />}
-                  </button>
-
-                  {/* Title and metadata */}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1">
-                      {isImportant && (
-                        <span
-                          className="font-bold text-red-600 shrink-0 text-xs select-none"
-                          title="Important"
-                          aria-label="Important"
-                        >
-                          !
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => onOpenAssignment(assignment)}
-                        className={`text-left font-medium text-ink hover:text-brand-ink hover:underline truncate ${
-                          isDone ? "line-through text-muted-foreground" : ""
-                        }`}
-                        title={assignment.title}
-                      >
-                        {assignment.title}
-                      </button>
-                    </div>
-
-                    <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                      {course && (
-                        <span className="flex items-center gap-1 truncate max-w-[8rem]">
-                          <span
-                            className="size-1.5 rounded-full shrink-0"
-                            style={{ backgroundColor: course.color }}
-                          />
-                          <span className="truncate">{course.name}</span>
-                        </span>
-                      )}
-                      <span>·</span>
-                      <span>Due {formatShortDate(assignment.due_date)}</span>
-                    </div>
-                  </div>
-
-                  {/* Pin badge / Actions */}
-                  <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover/focus:opacity-100 transition-opacity">
-                    <button
-                      type="button"
-                      onClick={() => handleMoveItem(index, "up")}
-                      disabled={isFirst || busy}
-                      className="p-0.5 text-muted-foreground hover:text-brand-ink disabled:opacity-20"
-                      title="Move up"
-                      aria-label="Move up"
-                    >
-                      <ArrowUp className="size-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleMoveItem(index, "down")}
-                      disabled={isLast || busy}
-                      className="p-0.5 text-muted-foreground hover:text-brand-ink disabled:opacity-20"
-                      title="Move down"
-                      aria-label="Move down"
-                    >
-                      <ArrowDown className="size-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteItem(item.id)}
-                      disabled={busy}
-                      className="p-0.5 text-muted-foreground hover:text-red-600 rounded"
-                      title="Remove pin from Weekly Focus (assignment remains intact)"
-                      aria-label="Remove pin from Weekly Focus"
-                    >
-                      <PinOff className="size-3" />
-                    </button>
-                  </div>
-                </div>
-              );
-            }
-
-            // Freeform checklist item
-            return (
-              <div
-                key={item.id}
-                className={`group/focus flex items-start gap-1.5 rounded-md border p-1.5 text-xs transition-colors ${
-                  item.is_done
-                    ? "border-[#ebd5dd] bg-[#fbf5f7] opacity-65"
-                    : "border-[#edd8e0] bg-white hover:border-brand-ink/40 shadow-xs"
-                }`}
-              >
-                {/* Checkbox */}
-                <button
-                  type="button"
-                  onClick={() => handleToggleFreeform(item)}
-                  disabled={togglingId === item.id}
-                  className={`mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
-                    item.is_done
-                      ? "border-brand-ink bg-brand-ink text-white"
-                      : "border-input bg-white hover:border-brand-ink"
-                  }`}
-                  aria-label={
-                    item.is_done
-                      ? `Mark "${item.title}" incomplete`
-                      : `Mark "${item.title}" complete`
-                  }
-                >
-                  {item.is_done && <Check className="size-2.5 stroke-[3]" />}
-                </button>
-
-                {/* Text */}
-                <span
-                  className={`min-w-0 flex-1 break-words ${
-                    item.is_done ? "line-through text-muted-foreground" : "text-ink font-medium"
-                  }`}
-                >
-                  {item.title}
-                </span>
-
-                {/* Reorder and Delete Actions */}
-                <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover/focus:opacity-100 transition-opacity">
-                  <button
-                    type="button"
-                    onClick={() => handleMoveItem(index, "up")}
-                    disabled={isFirst || busy}
-                    className="p-0.5 text-muted-foreground hover:text-brand-ink disabled:opacity-20"
-                    title="Move up"
-                    aria-label="Move up"
-                  >
-                    <ArrowUp className="size-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleMoveItem(index, "down")}
-                    disabled={isLast || busy}
-                    className="p-0.5 text-muted-foreground hover:text-brand-ink disabled:opacity-20"
-                    title="Move down"
-                    aria-label="Move down"
-                  >
-                    <ArrowDown className="size-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteItem(item.id)}
-                    disabled={busy}
-                    className="p-0.5 text-muted-foreground hover:text-red-600 rounded"
-                    title="Delete focus item"
-                    aria-label="Delete focus item"
-                  >
-                    <Trash2 className="size-3" />
-                  </button>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {/* Add Freeform Focus Item Input */}
-      <form onSubmit={handleAddFreeform} className="flex items-center gap-1.5 pt-1 border-t border-[#ebd5dd]">
-        <input
-          type="text"
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          placeholder="Add a focus item..."
-          disabled={busy}
-          className="h-7 w-full rounded border border-input bg-white px-2 text-xs outline-none focus:border-brand-ink"
-        />
-        <button
-          type="submit"
-          disabled={busy || !newTitle.trim()}
-          className="flex size-7 shrink-0 items-center justify-center rounded bg-brand-ink text-white hover:bg-brand-ink/90 disabled:opacity-50 transition-colors"
-          title="Add item"
-          aria-label="Add item"
-        >
-          <Plus className="size-3.5" />
-        </button>
+  return <section className="planner-weekly-focus flex flex-col gap-3 rounded-xl border border-[#dabac4] bg-[#fffdfd] p-3.5" aria-label="Weekly Focus">
+    <div className="flex items-start justify-between gap-2">
+      <div><h2 className="text-sm font-bold text-ink">Weekly Focus {incompleteCount > 0 && <span className="text-xs font-normal text-muted-foreground">· {incompleteCount} open</span>}</h2><p className="text-xs text-muted-foreground">{formatWeekRange(weekStart)}</p></div>
+      {weekStart !== getMondayOfWeek(today) && <button type="button" onClick={() => onWeekChange(getMondayOfWeek(today))} className="text-[11px] font-semibold text-brand-ink hover:underline">This week</button>}
+    </div>
+    <div className="flex items-center justify-between border-b border-[#ebd5dd] pb-2">
+      <button type="button" onClick={() => onWeekChange(addDays(weekStart, -7))} aria-label="Previous week" className="rounded p-1 focus-visible:ring-2 focus-visible:ring-brand-ink"><ChevronLeft className="size-4" /></button>
+      <button type="button" onClick={() => onWeekChange(addDays(weekStart, 7))} aria-label="Next week" className="rounded p-1 focus-visible:ring-2 focus-visible:ring-brand-ink"><ChevronRight className="size-4" /></button>
+    </div>
+    <div className="min-w-0">
+      <form onSubmit={addItem} className="flex min-w-0 items-center gap-1">
+        <textarea aria-label="New focus item" rows={1} value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="Type a focus item…" className="min-w-0 flex-1 resize-y rounded border border-input bg-white px-2 py-1.5 text-xs focus-visible:ring-2 focus-visible:ring-brand-ink" />
+        <select aria-label="Day for new focus item or assignment pin" value={addDayOffset} onChange={(event) => setAddDayOffset(Number(event.target.value))} className="w-12 shrink-0 rounded border border-input bg-white px-1 py-1.5 text-xs focus-visible:ring-2 focus-visible:ring-brand-ink">{weekDays.map((day, index) => <option key={day.date} value={index}>{["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"][index]}</option>)}</select>
+        <button type="submit" disabled={busy || !newTitle.trim()} aria-label="Add focus item" className="flex size-7 shrink-0 items-center justify-center rounded bg-brand-ink text-white disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-brand-ink"><Plus className="size-4" /></button>
       </form>
-    </section>
-  );
+      <button type="button" onClick={() => { setPinPickerOpen((open) => !open); setPinId(""); }} className="mt-1 text-[11px] text-brand-ink hover:underline">+ Pin assignment to {weekDays[addDayOffset].name}</button>
+      {pinPickerOpen && <div className="mt-1 flex gap-1"><select aria-label="Assignment to pin" value={pinId} onChange={(event) => setPinId(event.target.value)} className="min-w-0 flex-1 rounded border border-input bg-white p-1 text-xs"><option value="">Choose assignment</option>{pinCandidates.map((assignment) => <option key={assignment.id} value={assignment.id}>{assignment.title}</option>)}</select><button type="button" onClick={pinSelected} disabled={!pinId || busy} className="rounded bg-brand-ink px-2 text-xs text-white disabled:opacity-50">Pin</button></div>}
+    </div>
+    {populatedDays.length === 0 && <p className="text-xs text-muted-foreground">No focus items this week. Add one or pin an assignment.</p>}
+    <div className="space-y-3">
+      {populatedDays.map((day) => <section key={day.date} aria-label={`${day.name} focus items`}>
+        <h3 className="mb-0.5 text-xs font-bold text-ink">{day.name} <span className="font-normal text-muted-foreground">{formatShortDate(day.date)}</span></h3>
+        <div>
+        {day.items.map((item, index) => {
+          const assignment = assignmentForItem(item);
+          const course = assignment?.planner_course_id ? courseById.get(assignment.planner_course_id) : null;
+          const done = assignment ? assignment.status === "done" : item.is_done;
+          const displayText = item.title ?? assignment?.title ?? "Assignment unavailable";
+          return <div key={item.id} className="flex min-w-0 items-start gap-2 border-b border-[#f0dce3] py-1.5 text-xs last:border-b-0">
+            <button type="button" disabled={busy || editBusy} onClick={() => assignment ? onToggleAssignmentStatus(assignment) : changeItem(() => toggleFreeformFocusItem(item.id, item.is_done))} aria-label={done ? `Mark ${displayText} incomplete` : `Mark ${displayText} complete`} className="flex size-5 shrink-0 items-center justify-center rounded border border-[#d8b3c0] bg-white focus-visible:ring-2 focus-visible:ring-brand-ink">{done && <Check className="size-3" />}</button>
+            <div className="min-w-0 flex-1">{editingId === item.id ? <div onPointerDown={(event) => event.stopPropagation()}>
+                <textarea aria-label={`Edit ${displayText}`} rows={3} maxLength={500} value={editText} onChange={(event) => setEditText(event.target.value)} className="w-full resize-y rounded border border-input bg-white p-1.5 text-xs whitespace-pre-wrap [field-sizing:content] [overflow-wrap:anywhere] focus-visible:ring-2 focus-visible:ring-brand-ink" />
+                {editError && <p role="alert" className="mt-1 text-[11px] text-red-700">{editError}</p>}
+                <div className="mt-1 flex justify-end gap-2"><button type="button" disabled={editBusy} onClick={() => { setEditingId(null); setEditError(""); }} className="rounded px-2 py-1 text-xs hover:bg-[#ffe5ec]">Cancel</button><button type="button" disabled={editBusy || !editText.trim()} onClick={() => void saveEdit(item.id)} className="rounded bg-brand-ink px-2 py-1 text-xs text-white disabled:opacity-50">{editBusy ? "Saving…" : "Save"}</button></div>
+              </div> : assignment ? <button type="button" onClick={() => onOpenAssignment(assignment)} className={`block w-full whitespace-pre-wrap text-left font-medium [overflow-wrap:anywhere] hover:underline ${done ? "text-muted-foreground line-through" : "text-ink"}`}>{displayText}</button> : <span className={`block whitespace-pre-wrap [overflow-wrap:anywhere] ${done ? "text-muted-foreground line-through" : "text-ink"}`}>{displayText}</span>}
+              {assignment && <div className="whitespace-pre-wrap text-[10px] text-muted-foreground [overflow-wrap:anywhere]">{course && <><span aria-hidden="true" className="mr-1 inline-block size-1.5 rounded-full" style={{ backgroundColor: course.color }} />{course.name} · </>}Due {formatShortDate(assignment.due_date)}</div>}</div>
+            <details className="relative shrink-0"><summary aria-label={`Actions for ${displayText}`} className="flex size-6 cursor-pointer list-none items-center justify-center rounded text-muted-foreground hover:bg-[#ffe5ec] focus-visible:ring-2 focus-visible:ring-brand-ink [&::-webkit-details-marker]:hidden"><Ellipsis className="size-4" /></summary>
+              <div className="absolute right-0 z-20 w-36 rounded-md border border-[#e5c5d0] bg-[#fffafd] p-1 shadow-sm">
+                <button type="button" disabled={editBusy} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setEditingId(item.id); setEditText(displayText); setEditError(""); }} className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-[#ffe5ec]">Edit text</button>
+                <button type="button" onClick={() => reorder(day.date, day.items, index, -1)} disabled={busy || index === 0} className="block w-full rounded px-2 py-1 text-left text-xs disabled:opacity-40 hover:bg-[#ffe5ec]">Move up</button>
+                <button type="button" onClick={() => reorder(day.date, day.items, index, 1)} disabled={busy || index === day.items.length - 1} className="block w-full rounded px-2 py-1 text-left text-xs disabled:opacity-40 hover:bg-[#ffe5ec]">Move down</button>
+                <label className="block px-2 pt-1 text-[10px] text-muted-foreground">Move to day<select aria-label={`Move ${assignment?.title ?? item.title} to day`} value={day.date} disabled={busy} onChange={(event) => changeItem(() => moveWeeklyFocusItem(item.id, event.target.value))} className="mt-0.5 w-full rounded border border-input bg-white p-1 text-xs">{weekDays.map((targetDay) => <option key={targetDay.date} value={targetDay.date}>{targetDay.name}</option>)}</select></label>
+                <button type="button" disabled={busy} onClick={() => changeItem(() => deleteWeeklyFocusItem(item.id))} className="mt-1 block w-full rounded px-2 py-1 text-left text-xs text-red-700 hover:bg-red-50">{assignment ? "Remove pin" : "Delete"}</button>
+              </div>
+            </details>
+          </div>;
+        })}
+      </div>
+      </section>)}
+    </div>
+    <WeekNotepad key={`${semester.id}:${weekStart}`} semesterId={semester.id} weekStart={weekStart} initialBody={notepadBody} instanceId={instanceId} onChange={onNotepadChange} />
+  </section>;
 }

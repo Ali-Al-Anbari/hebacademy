@@ -21,6 +21,7 @@ export default async function PlannerPage() {
     subtasks,
     courseNotes,
     weeklyFocusItems,
+    weeklyNotepads,
     attachments,
     attachmentRefs,
     decks,
@@ -60,8 +61,10 @@ export default async function PlannerPage() {
       .select("id, semester_id, planner_course_id, note_date, body, is_done, created_at, updated_at")
       .eq("user_id", userId).order("created_at", { ascending: true }),
     supabase.from("planner_weekly_focus_items")
-      .select("id, semester_id, week_start, position, title, is_done, assignment_id, occurrence_date, created_at, updated_at")
+      .select("id, semester_id, week_start, focus_date, position, title, is_done, assignment_id, occurrence_date, created_at, updated_at")
       .eq("user_id", userId).order("position", { ascending: true }),
+    supabase.from("planner_weekly_notepads")
+      .select("semester_id, week_start, body").eq("user_id", userId),
     supabase.from("planner_assignment_attachments")
       .select("id, semester_id, assignment_id, storage_path, file_name, content_type, byte_size, created_at")
       .eq("user_id", userId),
@@ -89,6 +92,7 @@ export default async function PlannerPage() {
     subtasks,
     courseNotes,
     weeklyFocusItems,
+    weeklyNotepads,
     attachments,
     attachmentRefs,
     decks,
@@ -141,6 +145,7 @@ export default async function PlannerPage() {
           subtasks={subtasks.data ?? []}
           courseNotes={(courseNotes.data ?? []) as import("@/lib/planner/types").PlannerCourseNote[]}
           weeklyFocusItems={(weeklyFocusItems.data ?? []) as import("@/lib/planner/types").PlannerWeeklyFocusItem[]}
+          weeklyNotepads={weeklyNotepads.data ?? []}
           attachments={(attachments.data ?? []) as import("@/lib/planner/types").PlannerAssignmentAttachment[]}
           attachmentRefs={(attachmentRefs.data ?? []) as import("@/lib/planner/types").PlannerAssignmentAttachmentRef[]}
           hebacademyDecks={decks.data ?? []}

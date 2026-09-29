@@ -51,7 +51,7 @@
 body { background: var(--color-paper); color: var(--color-ink); font-family: var(--font-body), "Source Sans 3", sans-serif; }
 ::selection { background: var(--color-brand-100); color: var(--color-ink); }
 
-.app-header { position: relative; z-index: 10; background: var(--color-brand-50); border-bottom: 1px solid #bd8f9e; }
+.app-header { position: relative; z-index: 35; background: var(--color-brand-50); border-bottom: 1px solid #bd8f9e; }
 .brand-mark { display: inline-flex; min-height: 2.75rem; align-items: center; gap: .6rem; color: var(--color-ink); font-family: var(--font-display), sans-serif; font-size: 1.2rem; font-weight: 750; letter-spacing: -.045em; }
 .brand-mark::before { content: ""; display: block; width: 1.7rem; height: 1.7rem; background: url("/icon.svg") center / contain no-repeat; }
 .app-nav-link { display: inline-flex; min-height: 2.6rem; align-items: center; border-radius: .35rem; padding: 0 .75rem; color: var(--color-ink); font-size: .9rem; font-weight: 600; transition: color .16s ease, background-color .16s ease; }
@@ -142,11 +142,13 @@ button:disabled:hover { transform: none; }
 .planner-calendar { min-width: 0; overflow-x: auto; border: 1px solid #d2aab7; border-radius: .75rem; background: #fff8fa; box-shadow: 0 2px 14px #23182006; }
 .planner-calendar .fc { --fc-classic-background: #fff8fa; --fc-classic-foreground: #2A2024; --fc-classic-muted-foreground: #70545e; --fc-classic-border: #dabac4; --fc-classic-today: #FFC2D155; --fc-classic-highlight: #FFB3C65c; --fc-classic-primary: #FB6F92; --fc-classic-primary-foreground: #2A2024; font-family: var(--font-body), sans-serif; font-size: .85rem; }
 .planner-calendar .fc-theme-classic th { background-color: #fdf1f5; border-color: #dabac4; color: var(--color-ink); font-weight: 650; padding: 6px 0; font-size: .8rem; }
+.planner-calendar .fc-theme-classic th.fc-col-header-cell { height: 34px; padding: 0; vertical-align: middle; }
+.planner-calendar .fc-col-header-cell-cushion { display: inline-flex; min-height: 32px; align-items: center; padding: 0 4px; font-size: .75rem; line-height: 1.1; }
 .planner-calendar .fc-theme-classic td { border-color: #e8d0d8; }
 .planner-calendar .fc-daygrid-day-number { color: var(--color-ink); font-weight: 600; padding: 3px 6px; }
 .planner-calendar .fc-daygrid-day-top { display: block; }
 .planner-calendar .fc-daygrid-day-number { display: block; width: 100%; padding: 0; }
-.planner-month-day-top { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 3px; padding: 3px 6px; }
+.planner-month-day-top { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 3px; padding: 2px 6px; }
 .planner-month-meetings { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 3px; padding-top: 4px; }
 .planner-month-meeting-dot { display: inline-block; width: 8px; height: 8px; flex: 0 0 8px; border: 1px solid #2a202433; border-radius: 2px; }
 .planner-calendar .fc-col-header-cell-cushion { color: var(--color-ink); text-decoration: none; }

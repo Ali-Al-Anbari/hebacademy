@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { useLocalToday } from "@/lib/local-calendar";
 import {
+  addDays,
   formatShortDate,
   getMondayOfWeek,
   isTimeZone,
@@ -64,6 +65,7 @@ export function PlannerWorkspace({
   subtasks = [],
   courseNotes = [],
   weeklyFocusItems = [],
+  weeklyNotepads = [],
   attachments = [],
   attachmentRefs = [],
   hebacademyDecks = [],
@@ -84,6 +86,7 @@ export function PlannerWorkspace({
   subtasks?: AssignmentSubtask[];
   courseNotes?: PlannerCourseNote[];
   weeklyFocusItems?: PlannerWeeklyFocusItem[];
+  weeklyNotepads?: { semester_id: string; week_start: string; body: string }[];
   attachments?: PlannerAssignmentAttachment[];
   attachmentRefs?: PlannerAssignmentAttachmentRef[];
   hebacademyDecks?: PlannerDeck[];
@@ -145,6 +148,9 @@ export function PlannerWorkspace({
 
   // Mobile Weekly Focus modal state
   const [mobileFocusOpen, setMobileFocusOpen] = useState(false);
+  const [notepadDrafts, setNotepadDrafts] = useState<Record<string, string>>({});
+  const [pinRequest, setPinRequest] = useState<{ assignmentId: string; occurrenceDate: string | null } | null>(null);
+  const [requestedFocusDay, setRequestedFocusDay] = useState("");
 
   const allCustomTypes = useMemo(() => {
     const map = new Map(customTypes.map((t) => [t.id, t]));
@@ -181,6 +187,10 @@ export function PlannerWorkspace({
   const selectedSubtasks = subtasks.filter((s) => selectedAssignments.some((a) => a.id === s.assignment_id));
   const selectedCourseNotes = courseNotes.filter((n) => n.semester_id === selected?.id);
   const selectedWeeklyFocus = weeklyFocusItems.filter((w) => w.semester_id === selected?.id);
+  const notepadKey = `${selected?.id ?? ""}:${activeWeekStart}`;
+  const selectedNotepad = notepadDrafts[notepadKey] ?? weeklyNotepads.find((note) => note.semester_id === selected?.id && note.week_start === activeWeekStart)?.body ?? "";
+  const handleNotepadChange = (semesterId: string, weekStart: string, body: string) =>
+    setNotepadDrafts((previous) => ({ ...previous, [`${semesterId}:${weekStart}`]: body }));
   const selectedAttachments = attachments.filter((att) => att.semester_id === selected?.id);
   const selectedAttachmentRefs = attachmentRefs.filter((ref) => selectedAssignments.some((a) => a.id === ref.assignment_id));
   const currentDrawerAssignment = (() => {
@@ -281,13 +291,8 @@ export function PlannerWorkspace({
         saved(selected.id);
       }
     } else {
-      await pinAssignmentToFocus({
-        semesterId: selected.id,
-        weekStart: activeWeekStart,
-        assignmentId: realId,
-        occurrenceDate: occDate,
-      });
-      saved(selected.id);
+      setRequestedFocusDay(today && today >= activeWeekStart && today <= addDays(activeWeekStart, 6) ? today : activeWeekStart);
+      setPinRequest({ assignmentId: realId, occurrenceDate: occDate });
     }
   }
 
@@ -464,6 +469,7 @@ export function PlannerWorkspace({
             {/* Compact Desktop Weekly Focus (~280px) */}
             <div className="hidden xl:block w-[280px] shrink-0 sticky top-3 self-start max-h-[calc(100vh-2rem)] overflow-y-auto">
               <WeeklyFocus
+                instanceId="desktop"
                 semester={selected}
                 weekStart={activeWeekStart}
                 onWeekChange={setActiveWeekStart}
@@ -471,6 +477,8 @@ export function PlannerWorkspace({
                 courses={selectedCourses}
                 assignments={selectedAssignments}
                 focusItems={selectedWeeklyFocus}
+                notepadBody={selectedNotepad}
+                onNotepadChange={handleNotepadChange}
                 onOpenAssignment={handleOpenEditAssignment}
                 onToggleAssignmentStatus={handleToggleAssignmentStatus}
                 onSaved={() => saved(selected.id)}
@@ -526,6 +534,7 @@ export function PlannerWorkspace({
                 <DialogTitle>Weekly Focus</DialogTitle>
               </DialogHeader>
               <WeeklyFocus
+                instanceId="mobile"
                 semester={selected}
                 weekStart={activeWeekStart}
                 onWeekChange={setActiveWeekStart}
@@ -533,6 +542,8 @@ export function PlannerWorkspace({
                 courses={selectedCourses}
                 assignments={selectedAssignments}
                 focusItems={selectedWeeklyFocus}
+                notepadBody={selectedNotepad}
+                onNotepadChange={handleNotepadChange}
                 onOpenAssignment={(assignment) => {
                   setMobileFocusOpen(false);
                   handleOpenEditAssignment(assignment);
@@ -540,6 +551,22 @@ export function PlannerWorkspace({
                 onToggleAssignmentStatus={handleToggleAssignmentStatus}
                 onSaved={() => saved(selected.id)}
               />
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={Boolean(pinRequest)} onOpenChange={(open) => { if (!open) setPinRequest(null); }}>
+            <DialogContent className="sm:max-w-sm">
+              <DialogHeader><DialogTitle>Choose a focus day</DialogTitle></DialogHeader>
+              <p className="text-sm text-muted-foreground">This changes only the Weekly Focus placement, not the assignment due date.</p>
+              <label htmlFor="pin-focus-day" className="text-sm font-medium">Day</label>
+              <select id="pin-focus-day" value={requestedFocusDay} onChange={(event) => setRequestedFocusDay(event.target.value)} className="w-full rounded border border-input bg-white p-2 text-sm">
+                {Array.from({ length: 7 }, (_, index) => { const date = addDays(activeWeekStart, index); return <option key={date} value={date}>{new Intl.DateTimeFormat("en", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${date}T12:00:00Z`))}</option>; })}
+              </select>
+              <Button type="button" onClick={async () => {
+                if (!selected || !pinRequest) return;
+                const result = await pinAssignmentToFocus({ semesterId: selected.id, weekStart: activeWeekStart, focusDate: requestedFocusDay, assignmentId: pinRequest.assignmentId, occurrenceDate: pinRequest.occurrenceDate });
+                if (result.error) alert(result.error); else { setPinRequest(null); saved(selected.id); }
+              }}>Pin to this day</Button>
             </DialogContent>
           </Dialog>
 

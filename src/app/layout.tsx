@@ -4,6 +4,7 @@ import { signOut } from "./auth/actions";
 import { createClient } from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { LogOut } from "lucide-react";
+import { StickyNotes } from "@/components/sticky-notes";
 import "./globals.css";
 import { Bricolage_Grotesque, Source_Sans_3 } from "next/font/google";
 
@@ -18,7 +19,16 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getClaims();
-  const signedIn = !error && Boolean(data?.claims);
+  const userId = !error ? data?.claims?.sub : null;
+  const signedIn = Boolean(userId);
+  const stickyNotes = userId ? await supabase.from("user_sticky_notes")
+    .select("id, title, body, color, x, y, width, height, is_open, created_at, updated_at")
+    .eq("user_id", userId).order("created_at", { ascending: true }) : null;
+  // The optional title column is introduced by a separate, manually applied migration.
+  const stickyTitleUnavailable = stickyNotes?.error?.code === "42703" && stickyNotes.error.message.includes("title");
+  const legacyStickyNotes = userId && stickyTitleUnavailable ? await supabase.from("user_sticky_notes")
+    .select("id, body, color, x, y, width, height, is_open, created_at, updated_at")
+    .eq("user_id", userId).order("created_at", { ascending: true }) : null;
 
   return (
     <html lang="en" className={`${displayFont.variable} ${bodyFont.variable}`}>
@@ -31,6 +41,10 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
                 <Link href="/" className="app-nav-link">Dashboard</Link>
                 <Link href="/planner" className="app-nav-link">Planner</Link>
                 <Link href="/#study-schedules-title" className="app-nav-link">Study Schedules</Link>
+                <StickyNotes userId={userId!} initialNotes={(stickyTitleUnavailable
+                  ? (legacyStickyNotes?.data ?? []).map((note) => ({ ...note, title: "" }))
+                  : (stickyNotes?.data ?? [])) as import("@/components/sticky-notes").StickyNoteRecord[]}
+                  initialError={Boolean(stickyTitleUnavailable ? legacyStickyNotes?.error : stickyNotes?.error)} titleSupported={!stickyTitleUnavailable} />
                 <form action={signOut}>
                   <Button type="submit" variant="ghost" className="px-2 text-muted-foreground sm:px-4"><LogOut className="hidden sm:block" /> Sign out</Button>
                 </form>

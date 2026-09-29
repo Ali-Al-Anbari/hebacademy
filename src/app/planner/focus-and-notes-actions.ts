@@ -2,13 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { isDateOnly, weekdayOf } from "@/lib/planner/dates";
+import { addDays, isDateOnly, weekdayOf } from "@/lib/planner/dates";
 import { parseVirtualAssignmentId } from "@/lib/planner/recurrence";
+import { focusTextPatch } from "@/lib/planner/focus-edit";
 import type { PlannerCourseNote, PlannerWeeklyFocusItem } from "@/lib/planner/types";
 import { createClient } from "@/lib/supabase/server";
 
 const isId = (value: unknown): value is string =>
   typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+const validFocusDay = (weekStart: string, focusDate: string) =>
+  isDateOnly(weekStart) && weekdayOf(weekStart) === 1 &&
+  isDateOnly(focusDate) && focusDate >= weekStart && focusDate <= addDays(weekStart, 6);
 
 async function authenticated() {
   const supabase = await createClient();
@@ -196,18 +201,20 @@ export async function deleteCourseNote(noteId: string): Promise<{ error: string 
 export async function addFreeformFocusItem({
   semesterId,
   weekStart,
+  focusDate,
   title,
 }: {
   semesterId: string;
   weekStart: string;
+  focusDate: string;
   title: string;
 }): Promise<{ error: string | null; item: PlannerWeeklyFocusItem | null }> {
   const context = await ownedSemester(semesterId);
   if (!context) {
     return { error: "Semester could not be verified.", item: null };
   }
-  if (!isDateOnly(weekStart) || weekdayOf(weekStart) !== 1) {
-    return { error: "Weekly focus must start on a Monday.", item: null };
+  if (!validFocusDay(weekStart, focusDate)) {
+    return { error: "Choose a day in this Monday–Sunday week.", item: null };
   }
   const trimmed = typeof title === "string" ? title.trim() : "";
   if (!trimmed || trimmed.length > 500) {
@@ -221,6 +228,7 @@ export async function addFreeformFocusItem({
     .eq("user_id", context.userId)
     .eq("semester_id", semesterId)
     .eq("week_start", weekStart)
+    .eq("focus_date", focusDate)
     .order("position", { ascending: false })
     .limit(1);
 
@@ -232,13 +240,14 @@ export async function addFreeformFocusItem({
       user_id: context.userId,
       semester_id: semesterId,
       week_start: weekStart,
+      focus_date: focusDate,
       position: nextPos,
       title: trimmed,
       is_done: false,
       assignment_id: null,
       occurrence_date: null,
     })
-    .select("id, semester_id, week_start, position, title, is_done, assignment_id, occurrence_date, created_at, updated_at")
+    .select("id, semester_id, week_start, focus_date, position, title, is_done, assignment_id, occurrence_date, created_at, updated_at")
     .single();
 
   if (error || !data) {
@@ -278,14 +287,34 @@ export async function toggleFreeformFocusItem(
   return { error: null };
 }
 
+export async function updateWeeklyFocusItemText(itemId: string, title: string): Promise<{ error: string | null }> {
+  const context = await authenticated();
+  const patch = focusTextPatch(title, new Date().toISOString());
+  if (!isId(itemId) || !patch) {
+    return { error: "Enter a focus item (up to 500 characters)." };
+  }
+  const { data, error, status, statusText } = await context.supabase.from("planner_weekly_focus_items")
+    .update(patch)
+    .eq("id", itemId).eq("user_id", context.userId)
+    .select("id").maybeSingle();
+  if (error || !data) {
+    if (process.env.NODE_ENV === "development") console.error("Could not edit Weekly Focus item", { itemId, status, statusText, code: error?.code, message: error?.message, details: error?.details, hint: error?.hint });
+    return { error: error?.code === "23514" ? "Editing pinned assignment text requires the pending Weekly Focus migration." : "Could not save the focus item. Please try again." };
+  }
+  revalidatePath("/planner");
+  return { error: null };
+}
+
 export async function pinAssignmentToFocus({
   semesterId,
   weekStart,
+  focusDate,
   assignmentId,
   occurrenceDate,
 }: {
   semesterId: string;
   weekStart: string;
+  focusDate: string;
   assignmentId: string;
   occurrenceDate?: string | null;
 }): Promise<{ error: string | null; item: PlannerWeeklyFocusItem | null }> {
@@ -297,14 +326,14 @@ export async function pinAssignmentToFocus({
   if (!context) {
     return { error: "Assignment could not be verified.", item: null };
   }
-  if (!isDateOnly(weekStart) || weekdayOf(weekStart) !== 1) {
-    return { error: "Weekly focus must start on a Monday.", item: null };
+  if (!validFocusDay(weekStart, focusDate)) {
+    return { error: "Choose a day in this Monday–Sunday week.", item: null };
   }
 
   // Check if already pinned for this week
   let existingQuery = context.supabase
     .from("planner_weekly_focus_items")
-    .select("id, semester_id, week_start, position, title, is_done, assignment_id, occurrence_date, created_at, updated_at")
+    .select("id, semester_id, week_start, focus_date, position, title, is_done, assignment_id, occurrence_date, created_at, updated_at")
     .eq("user_id", context.userId)
     .eq("semester_id", semesterId)
     .eq("week_start", weekStart)
@@ -329,6 +358,7 @@ export async function pinAssignmentToFocus({
     .eq("user_id", context.userId)
     .eq("semester_id", semesterId)
     .eq("week_start", weekStart)
+    .eq("focus_date", focusDate)
     .order("position", { ascending: false })
     .limit(1);
 
@@ -342,13 +372,14 @@ export async function pinAssignmentToFocus({
       user_id: context.userId,
       semester_id: semesterId,
       week_start: weekStart,
+      focus_date: focusDate,
       position: nextPos,
       title: null,
       is_done: false,
       assignment_id: realAssignmentId,
       occurrence_date: realOccurrenceDate,
     })
-    .select("id, semester_id, week_start, position, title, is_done, assignment_id, occurrence_date, created_at, updated_at")
+    .select("id, semester_id, week_start, focus_date, position, title, is_done, assignment_id, occurrence_date, created_at, updated_at")
     .single();
 
   if (error || !data) {
@@ -386,16 +417,19 @@ export async function deleteWeeklyFocusItem(itemId: string): Promise<{ error: st
 export async function reorderWeeklyFocusItems({
   semesterId,
   weekStart,
+  focusDate,
   orderedIds,
 }: {
   semesterId: string;
   weekStart: string;
+  focusDate: string;
   orderedIds: string[];
 }): Promise<{ error: string | null }> {
   const context = await ownedSemester(semesterId);
   if (!context) {
     return { error: "Semester could not be verified." };
   }
+  if (!validFocusDay(weekStart, focusDate)) return { error: "Choose a day in this week." };
   if (!Array.isArray(orderedIds) || orderedIds.some((id) => !isId(id))
     || new Set(orderedIds).size !== orderedIds.length) {
     return { error: "Invalid order data." };
@@ -406,7 +440,8 @@ export async function reorderWeeklyFocusItems({
     .select("id")
     .eq("user_id", context.userId)
     .eq("semester_id", semesterId)
-    .eq("week_start", weekStart);
+    .eq("week_start", weekStart)
+    .eq("focus_date", focusDate);
   if (loadError || !currentItems || currentItems.length !== orderedIds.length
     || currentItems.some((item) => !orderedIds.includes(item.id))) {
     if (loadError) console.error("Could not verify weekly focus order:", loadError);
@@ -422,6 +457,7 @@ export async function reorderWeeklyFocusItems({
         .eq("user_id", context.userId)
         .eq("semester_id", semesterId)
         .eq("week_start", weekStart)
+        .eq("focus_date", focusDate)
         .select("id")
         .maybeSingle()
     )
@@ -433,5 +469,40 @@ export async function reorderWeeklyFocusItems({
   }
 
   revalidatePath("/planner");
+  return { error: null };
+}
+
+export async function moveWeeklyFocusItem(itemId: string, focusDate: string): Promise<{ error: string | null }> {
+  const context = await authenticated();
+  if (!isId(itemId)) return { error: "Invalid focus item." };
+  const { data: item, error: loadError } = await context.supabase.from("planner_weekly_focus_items")
+    .select("id, week_start, semester_id").eq("id", itemId).eq("user_id", context.userId).maybeSingle();
+  if (loadError || !item) return { error: "Focus item is no longer available." };
+  if (!validFocusDay(item.week_start, focusDate)) return { error: "Choose a day in this week." };
+  const { data: last } = await context.supabase.from("planner_weekly_focus_items")
+    .select("position").eq("user_id", context.userId).eq("semester_id", item.semester_id)
+    .eq("week_start", item.week_start).eq("focus_date", focusDate)
+    .order("position", { ascending: false }).limit(1);
+  const { data, error } = await context.supabase.from("planner_weekly_focus_items")
+    .update({ focus_date: focusDate, position: (last?.[0]?.position ?? -1) + 1, updated_at: new Date().toISOString() })
+    .eq("id", itemId).eq("user_id", context.userId).select("id").maybeSingle();
+  if (error || !data) return { error: "Could not move focus item." };
+  revalidatePath("/planner");
+  return { error: null };
+}
+
+export async function saveWeeklyNotepad({ semesterId, weekStart, body }: {
+  semesterId: string; weekStart: string; body: string;
+}): Promise<{ error: string | null }> {
+  const context = await ownedSemester(semesterId);
+  if (!context) return { error: "Semester could not be verified." };
+  if (!isDateOnly(weekStart) || weekdayOf(weekStart) !== 1 || typeof body !== "string" || body.length > 20000) {
+    return { error: "Invalid week notes." };
+  }
+  const { error } = await context.supabase.from("planner_weekly_notepads").upsert({
+    user_id: context.userId, semester_id: semesterId, week_start: weekStart,
+    body, updated_at: new Date().toISOString(),
+  }, { onConflict: "user_id,semester_id,week_start" });
+  if (error) return { error: "Could not save week notes. Please try again." };
   return { error: null };
 }
