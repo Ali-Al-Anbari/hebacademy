@@ -448,7 +448,7 @@ export function PlannerCalendar({
             headerToolbar={false}
             firstDay={1}
             height="auto"
-            dayMaxEvents={view === "dayGridMonth" ? 7 : true}
+            dayMaxEvents={7}
             dayCellTopContent={(info) => {
               if (info.view.type !== "dayGridMonth") return info.dayNumberText;
               const date = info.view.calendar.formatIso(info.date, true);
